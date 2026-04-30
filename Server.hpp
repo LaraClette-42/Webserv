@@ -1,6 +1,7 @@
 #ifndef SERVER_HPP
 #define SERVER_HPP
 
+#include "Client.hpp"
 #include <sys/socket.h>
 #include <netinet/in.h> 
 #include <map>
@@ -12,18 +13,31 @@
 #include <string.h>
 #include <unistd.h> 
 #include <sstream>
+#include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+
 class Server {
-    private:
-    long _fd;
-    int _port;
+private:
+    std::vector<int> _listen_fds;
+    std::vector<int> _ports;
+    std::map<int, Client> _clients;
     unsigned int _host;
-    sockaddr_in server_addr;
-    
-    
 
-    Server();
+    int createTCP(int port);
+    bool isListeningFd(int fd) const;
+    void handleNewConnection(int listenFd, fd_set& fds, int& fdMax);
+    void handleClientRead(int clientFd, fd_set& fds);
+    void handleClientWrite(int clientFd, fd_set& fds);
+    void removeClient(int clientFd, fd_set& fds);
+    static std::string formatIPv4(const sockaddr_in& addr);
 
-    int createTCP();
+public:
+    Server(const std::vector<int>& ports, unsigned int host = INADDR_ANY);
+    ~Server();
+
+    void run();
 
 };
 
