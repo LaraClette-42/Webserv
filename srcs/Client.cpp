@@ -10,7 +10,7 @@ Client::Client()
       state(READING_HEADERS),
       expected_body_size(0) {
 }
-// what if an empty client is set up on should close true and keep alive false ? as should not happen
+
 Client::Client(int fdValue, int listenFd, const sockaddr_in& peer)
     : fd(fdValue),
       listen_fd(listenFd),
