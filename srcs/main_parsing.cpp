@@ -92,25 +92,25 @@ int main(int argc, char **argv) {
         std::cout << "  " << it->first << ": " << it->second << "\n";
     std::cout << "body:    " << req.body << "\n";
 
-    // std::cout << "\nHTTP response (GET)\n\n";
+    std::cout << "\nHTTP response (GET)\n\n";
 
-    // ConfigBlock testConfig;
-    // testConfig.root  = "./www";
-    // testConfig.index.push_back("index.html");
+    ConfigBlock testConfig;
+    testConfig.root  = "./www";
+    testConfig.index.push_back("index.html");
 
-    // HttpRequest getRequest;
-    // getRequest.method  = "GET";
-    // getRequest.path    = "/";
-    // getRequest.version = "HTTP/1.1";
+    HttpRequest getRequest;
+    getRequest.method  = "GET";
+    getRequest.path    = "/";
+    getRequest.version = "HTTP/1.1";
 
-    // HttpResponse response = HttpResponseBuilder::build(getRequest, testConfig);
-    // std::cout << response.serialize();
+    HttpResponse response = HttpResponseBuilder::build(getRequest, testConfig);
+    std::cout << response.serialize();
 
-    // std::cout << "\n── HTTP response (404) ───────────────\n\n";
+    std::cout << "\nHTTP response (404)\n\n";
 
-    // getRequest.path = "/missing.html";
-    // HttpResponse notFound = HttpResponseBuilder::build(getRequest, testConfig);
-    // std::cout << notFound.serialize();
+    getRequest.path = "/missing.html";
+    HttpResponse notFound = HttpResponseBuilder::build(getRequest, testConfig);
+    std::cout << notFound.serialize();
 
     return 0;
 }

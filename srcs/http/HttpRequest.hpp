@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include "HttpStatus.hpp"
 
 struct HttpRequest {
     std::string                        method;
@@ -13,7 +14,7 @@ struct HttpRequest {
     std::string                        body;
     int                                status;
 
-    HttpRequest() : status(200) {}
+    HttpRequest() : status(HTTP_OK) {}
 };
 
 class HttpParser {
