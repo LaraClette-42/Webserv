@@ -1,4 +1,6 @@
 #include "config/config.hpp"
+#include "http/HttpRequest.hpp"
+#include "http/HttpResponse.hpp"
 #include <iostream>
 #include <set>
 #include <map>
@@ -68,5 +70,47 @@ int main(int argc, char **argv) {
         std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
+
+    std::cout << "TEST HTTP parsing\n\n";
+
+    std::string raw =
+        "POST /upload?user=42 HTTP/1.1\r\n"
+        "Host: localhost:8080\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
+        "\r\n"
+        "Hello, world!";
+
+    HttpRequest req = HttpParser::parse(raw);
+    std::cout << "status:  " << req.status  << "\n";
+    std::cout << "method:  " << req.method  << "\n";
+    std::cout << "path:    " << req.path    << "\n";
+    std::cout << "query:   " << req.query   << "\n";
+    std::cout << "version: " << req.version << "\n";
+    std::cout << "headers:\n";
+    for (std::map<std::string, std::string>::const_iterator it = req.headers.begin(); it != req.headers.end(); ++it)
+        std::cout << "  " << it->first << ": " << it->second << "\n";
+    std::cout << "body:    " << req.body << "\n";
+
+    // std::cout << "\nHTTP response (GET)\n\n";
+
+    // ConfigBlock testConfig;
+    // testConfig.root  = "./www";
+    // testConfig.index.push_back("index.html");
+
+    // HttpRequest getRequest;
+    // getRequest.method  = "GET";
+    // getRequest.path    = "/";
+    // getRequest.version = "HTTP/1.1";
+
+    // HttpResponse response = HttpResponseBuilder::build(getRequest, testConfig);
+    // std::cout << response.serialize();
+
+    // std::cout << "\n── HTTP response (404) ───────────────\n\n";
+
+    // getRequest.path = "/missing.html";
+    // HttpResponse notFound = HttpResponseBuilder::build(getRequest, testConfig);
+    // std::cout << notFound.serialize();
+
     return 0;
 }
