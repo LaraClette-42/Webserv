@@ -4,6 +4,8 @@
 #include <ctime>
 #include <netinet/in.h>
 #include <string>
+#include <vector>
+#include "../http/HttpRequest.hpp"
 
 struct Client {
     enum State {
@@ -17,7 +19,7 @@ struct Client {
     int fd;
     int listen_fd;
     sockaddr_in peer_addr;
-    //std::vector<Request> _request;
+    std::vector<HttpRequest> requests;
 
     std::string read_buffer;
     std::string write_buffer;

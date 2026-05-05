@@ -1,12 +1,11 @@
 #include "Server.hpp"
-#include "Response.hpp"
-
-
-
+#include "../http/HttpRequest.hpp"
+#include "../http/HttpResponse.hpp"
+#include "../http/HttpStatus.hpp"
 
 Server::Server(const std::vector<ConfigBlock>& config)
-    : _configserver(config) {
-    if (_configserver.empty()) {
+    : _servers(config) {
+    if (_servers.empty()) {
         throw std::runtime_error("At least one listening port is required");
     }
 }
@@ -16,8 +15,6 @@ Server::~Server() {
         close(*it);
     }
 }
-
-
 
 static void setNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -41,7 +38,7 @@ std::string Server::formatIPv4(const sockaddr_in& addr) {
     return ss.str();
 }
 
-bool Server::isListeningFd(int fd) const {
+bool Server::isServerFd(int fd) const {
     return std::find(_server_fds.begin(), _server_fds.end(), fd) != _server_fds.end();
 }
 
@@ -63,18 +60,15 @@ uint32_t getHost(std::string host) {
     int val = static_cast<uint32_t>(std::atoi(segment.c_str()));
     res |= (val << shift);
     shift += 8;
-      
-}
+    }
     return res;
 }
 
-
-int Server::createTCP(const ConfigBlock& config) {
+int Server::createSocket(const ConfigBlock& config) {
     const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         throw std::runtime_error("Cannot create socket");
     }
-
     const int enable = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable)) == -1) {
         close(fd);
@@ -92,18 +86,14 @@ int Server::createTCP(const ConfigBlock& config) {
     server_addr.sin_port = htons(config.port);
 
     server_addr.sin_addr.s_addr = getHost(config.host);
-
-
     if (bind(fd, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
         close(fd);
         throw std::runtime_error("Cannot bind to IP port");
     }
-
     if (listen(fd, 1024) == -1) {
         close(fd);
         throw std::runtime_error("Could not listen");
     }
-
     std::cout << "Listening on " << formatIPv4(server_addr) << std::endl;
     return fd;
 }
@@ -139,20 +129,44 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
         return;
     }
     Client& client = it->second;
-    char buf[1024];
-    int nbytes = recv(clientFd, buf, sizeof(buf), 0);
-    if (nbytes <= 0) {
+    char buf[4096];
+
+    ssize_t nbytes = 0;
+    while ((nbytes = recv(clientFd, buf, sizeof(buf), 0)) > 0) {
+        client.read_buffer.append(buf, static_cast<std::size_t>(nbytes));
+        client.last_activity = std::time(NULL);
+    }
+    if (nbytes == 0) {
         removeClient(clientFd, fds);
         return;
     }
-    client.last_activity = std::time(NULL);
-    client.read_buffer.append(buf, nbytes);
-    if (client.read_buffer.find("\r\n\r\n") == std::string::npos) {
+    if (nbytes < 0 && (errno != EAGAIN && errno != EWOULDBLOCK)) {
+        removeClient(clientFd, fds);
         return;
     }
-    client.write_buffer = Response::okText("Hello from webserv\n");
+    HttpRequest request = HttpParser::parse(client.read_buffer);
+    if (request.status != HTTP_OK) {
+        removeClient(clientFd, fds);
+        return;
+    }
+    client.requests.push_back(request);
+    client.read_buffer.clear();
+    if (!client.write_buffer.empty() || client.requests.empty())
+        return;
+    ConfigBlock activeServer = _servers.front();
+    std::vector<int>::const_iterator listenIt =
+        std::find(_server_fds.begin(), _server_fds.end(), client.listen_fd);
+    if (listenIt != _server_fds.end()) {
+        std::size_t index = static_cast<std::size_t>(listenIt - _server_fds.begin());
+        if (index < _servers.size())
+            activeServer = _servers[index];
+    }
+
+    HttpResponse response = HttpResponseBuilder::build(client.requests.front(), activeServer);
+    client.requests.erase(client.requests.begin());
+    client.write_buffer = response.serialize();
     client.write_offset = 0;
-    client.should_close = true;
+    client.should_close = false;
     client.state = Client::WRITING_RESPONSE;
 }
 
@@ -162,7 +176,6 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
         removeClient(clientFd, fds);
         return;
     }
-
     Client& client = it->second;
     if (client.write_offset >= client.write_buffer.size()) {
         client.state = Client::READING_HEADERS;
@@ -181,6 +194,22 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
             removeClient(clientFd, fds);
             return;
         }
+        ConfigBlock activeServer = _servers.front();
+        std::vector<int>::const_iterator listenIt =
+            std::find(_server_fds.begin(), _server_fds.end(), client.listen_fd);
+        if (listenIt != _server_fds.end()) {
+            std::size_t index = static_cast<std::size_t>(listenIt - _server_fds.begin());
+            if (index < _servers.size())
+                activeServer = _servers[index];
+        }
+        if (!client.requests.empty()) {
+            HttpResponse response = HttpResponseBuilder::build(client.requests.front(), activeServer);
+            client.requests.erase(client.requests.begin());
+            client.write_buffer = response.serialize();
+            client.write_offset = 0;
+            client.state = Client::WRITING_RESPONSE;
+            return;
+        }
         client.read_buffer.clear();
         client.write_buffer.clear();
         client.write_offset = 0;
@@ -189,8 +218,8 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
 }
 
 void Server::run() {
-    for (std::vector<ConfigBlock>::const_iterator it = _configserver.begin(); it != _configserver.end(); ++it) {
-        _server_fds.push_back(createTCP(*it));
+    for (std::vector<ConfigBlock>::const_iterator it = _servers.begin(); it != _servers.end(); ++it) {
+        _server_fds.push_back(createSocket(*it));
     }
     fd_set fds, readfds, writefds;
     FD_ZERO(&fds);
@@ -218,7 +247,7 @@ void Server::run() {
             throw std::runtime_error("Select error");
         }
         for (int fdCurrent = 0; fdCurrent < fd_max + 1; fdCurrent++) {
-            if (isListeningFd(fdCurrent)) {
+            if (isServerFd(fdCurrent)) {
                 if (FD_ISSET(fdCurrent, &readfds)) {
                     handleNewConnection(fdCurrent, fds, fd_max);
                 }
@@ -232,6 +261,8 @@ void Server::run() {
             }
         }
     }
-    //handle request in the client.write_buffer() -> send it to hqndle client read. 
-    //std::string parserequest(std::String client.writebuffer); 
+
 }
+//for the moment, multiple server on the same port is not supported
+// in Nginx, it is supported by using a server block with the same port
+// but different server_name -> check later
