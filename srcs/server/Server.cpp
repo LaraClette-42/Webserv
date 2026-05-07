@@ -162,7 +162,7 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
             activeServer = _servers[index];
     }
 
-    HttpResponse response = HttpResponseBuilder::build(client.requests.front(), activeServer);
+    HttpResponse response = HttpResponseBuilder::build(client.peer_addr, client.requests.front(), activeServer);
     client.requests.erase(client.requests.begin());
     client.write_buffer = response.serialize();
     client.write_offset = 0;
@@ -203,7 +203,7 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
                 activeServer = _servers[index];
         }
         if (!client.requests.empty()) {
-            HttpResponse response = HttpResponseBuilder::build(client.requests.front(), activeServer);
+            HttpResponse response = HttpResponseBuilder::build(client.peer_addr,client.requests.front(), activeServer);
             client.requests.erase(client.requests.begin());
             client.write_buffer = response.serialize();
             client.write_offset = 0;

@@ -17,7 +17,7 @@ struct HttpResponse {
 
 class HttpResponseBuilder {
 public:
-    static HttpResponse build(const HttpRequest &request, const ConfigBlock &config);
+    static HttpResponse build(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config);
     static std::string  statusMessage(int status);
 };
 

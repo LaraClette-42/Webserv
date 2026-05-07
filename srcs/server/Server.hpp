@@ -31,10 +31,11 @@ private:
     void handleClientRead(int clientFd, fd_set& fds);
     void handleClientWrite(int clientFd, fd_set& fds);
     void removeClient(int clientFd, fd_set& fds);
-    static std::string formatIPv4(const sockaddr_in& addr);
 
 public:
     Server(const std::vector<ConfigBlock>& config);
+    static std::string formatIPv4(const sockaddr_in& addr);
+
     ~Server();
 
     void run();

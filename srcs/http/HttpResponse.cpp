@@ -1,5 +1,7 @@
 #include "HttpResponse.hpp"
 #include "HttpStatus.hpp"
+#include "../server/Server.hpp"
+#include "../CGI.hpp"
 #include "../utils/utils.hpp"
 #include <sstream>
 #include <fstream>
@@ -117,9 +119,15 @@ std::string HttpResponseBuilder::statusMessage(int status) {
     return "Unknown";
 }
 
-HttpResponse HttpResponseBuilder::build(const HttpRequest &request, const ConfigBlock &config) {
+HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config) {
     static std::map<std::string, MethodHandler> methods = makeMethodMap();
-
+    if (CGI::isCGI(request.path)) {
+        HttpResponse response;
+        CGI cgi(clientAddr, request, config);
+        response.body = cgi.executeScript();  // Run CGI process
+        response.status = HTTP_OK;
+        return response;
+    }
     if (request.status != HTTP_OK)
         return makeError(request.status);
 
