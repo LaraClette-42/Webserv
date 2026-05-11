@@ -7,8 +7,6 @@
 #include <map>
 #include <vector>
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 static void check(const std::string &name, bool ok) {
     std::cout << (ok ? "[PASS] " : "[FAIL] ") << name << "\n";
 }
@@ -61,8 +59,6 @@ static void printBlock(const ConfigBlock &block, int indent) {
     }
 }
 
-// ── config builder helpers ────────────────────────────────────────────────────
-
 static ConfigBlock makeServerConfig() {
     ConfigBlock server;
     server.root = "./www";
@@ -98,12 +94,9 @@ static HttpRequest makeRequest(const std::string &method,
     return req;
 }
 
-// ── test suites ───────────────────────────────────────────────────────────────
-
 static void testRequestParsing() {
     std::cout << "\n── REQUEST PARSING ──────────────────────────────────────\n";
 
-    // basic request
     std::string raw =
         "POST /upload?user=42 HTTP/1.1\r\n"
         "Host: localhost:8080\r\n"
@@ -119,11 +112,9 @@ static void testRequestParsing() {
     check("basic: Host header parsed", req.headers.count("Host") == 1);
     check("basic: body",               req.body    == "Hello, world!");
 
-    // bad request: missing version
     HttpRequest bad = HttpParser::parse("GET /\r\n\r\n");
     check("bad: missing version → 400", bad.status == 400);
 
-    // chunked decoding
     std::string chunked =
         "POST /data HTTP/1.1\r\n"
         "Transfer-Encoding: chunked\r\n"
@@ -132,28 +123,24 @@ static void testRequestParsing() {
         "6\r\n World\r\n"
         "0\r\n\r\n";
     HttpRequest chunkReq = HttpParser::parse(chunked);
-    check("chunked: body decoded",      chunkReq.body == "Hello World");
-    check("chunked: status 200",        chunkReq.status == 200);
+    check("chunked: body decoded",  chunkReq.body == "Hello World");
+    check("chunked: status 200",    chunkReq.status == 200);
 }
 
 static void testGet() {
     std::cout << "\n── GET ──────────────────────────────────────────────────\n";
     ConfigBlock server = makeServerConfig();
 
-    // GET existing file
     HttpResponse r = HttpResponseBuilder::build(makeRequest("GET", "/index.html"), server);
-    check("GET /index.html → 200",             r.status == 200);
+    check("GET /index.html → 200",               r.status == 200);
     check("GET /index.html → Content-Type html", r.headers["Content-Type"] == "text/html");
 
-    // GET directory → index.html
     HttpResponse dir = HttpResponseBuilder::build(makeRequest("GET", "/"), server);
-    check("GET / → 200 (index.html found)",    dir.status == 200);
+    check("GET / → 200 (index.html found)",      dir.status == 200);
 
-    // GET missing file → custom 404
     HttpResponse nf = HttpResponseBuilder::build(makeRequest("GET", "/ghost.html"), server);
-    check("GET /ghost.html → 404",             nf.status == 404);
-    check("GET /ghost.html → custom error page",
-          nf.body.find("Custom 404") != std::string::npos);
+    check("GET /ghost.html → 404",               nf.status == 404);
+    check("GET /ghost.html → custom error page", nf.body.find("Custom 404") != std::string::npos);
 }
 
 static void testAutoindex() {
@@ -161,8 +148,8 @@ static void testAutoindex() {
     ConfigBlock server = makeServerConfig();
 
     HttpResponse r = HttpResponseBuilder::build(makeRequest("GET", "/listing"), server);
-    check("autoindex → 200",           r.status == 200);
-    check("autoindex → lists un.txt",  r.body.find("un.txt")   != std::string::npos);
+    check("autoindex → 200",            r.status == 200);
+    check("autoindex → lists un.txt",   r.body.find("un.txt")   != std::string::npos);
     check("autoindex → lists deux.txt", r.body.find("deux.txt") != std::string::npos);
 }
 
@@ -171,16 +158,14 @@ static void testRedirect() {
     ConfigBlock server = makeServerConfig();
 
     HttpResponse r = HttpResponseBuilder::build(makeRequest("GET", "/old"), server);
-    check("redirect → 301",                   r.status == 301);
-    check("redirect → Location header set",
-          r.headers["Location"] == "http://localhost:8080/");
+    check("redirect → 301",                r.status == 301);
+    check("redirect → Location header set", r.headers["Location"] == "http://localhost:8080/");
 }
 
 static void testMethodControl() {
     std::cout << "\n── METHOD CONTROL ───────────────────────────────────────\n";
     ConfigBlock server = makeServerConfig();
 
-    // GET on /uploads is not in allow_methods
     HttpResponse r = HttpResponseBuilder::build(makeRequest("GET", "/uploads/anything"), server);
     check("GET on uploads-only route → 405", r.status == 405);
 }
@@ -204,40 +189,34 @@ static void testPost() {
     std::cout << "\n── POST ─────────────────────────────────────────────────\n";
     ConfigBlock server = makeServerConfig();
 
-    // successful upload
     HttpRequest req = makeRequest("POST", "/uploads/hello.txt", "bonjour monde");
     HttpResponse r  = HttpResponseBuilder::build(req, server);
-    check("POST → 201",                        r.status == 201);
-    check("POST → file created on disk",       fileExists("./www/uploads/hello.txt"));
+    check("POST → 201",                  r.status == 201);
+    check("POST → file created on disk", fileExists("./www/uploads/hello.txt"));
     std::remove("./www/uploads/hello.txt");
 
-    // POST without upload_store → 403
     HttpRequest noStore = makeRequest("POST", "/nostore/file.txt", "data");
     HttpResponse forbidden = HttpResponseBuilder::build(noStore, server);
-    check("POST without upload_store → 403",   forbidden.status == 403);
+    check("POST without upload_store → 403", forbidden.status == 403);
 }
 
 static void testDelete() {
     std::cout << "\n── DELETE ───────────────────────────────────────────────\n";
     ConfigBlock server = makeServerConfig();
 
-    // create a file to delete
     { std::ofstream f("./www/to_delete.txt"); f << "temp"; }
     HttpRequest req = makeRequest("DELETE", "/to_delete.txt");
     HttpResponse r  = HttpResponseBuilder::build(req, server);
-    check("DELETE existing file → 204",        r.status == 204);
-    check("DELETE → file gone from disk",      !fileExists("./www/to_delete.txt"));
+    check("DELETE existing file → 204",   r.status == 204);
+    check("DELETE → file gone from disk", !fileExists("./www/to_delete.txt"));
 
-    // delete missing file
     HttpResponse nf = HttpResponseBuilder::build(makeRequest("DELETE", "/ghost.txt"), server);
-    check("DELETE missing file → 404",         nf.status == 404);
+    check("DELETE missing file → 404",    nf.status == 404);
 
-    // DELETE on uploads (allow_methods: POST DELETE) is allowed
     { std::ofstream f("./www/uploads/bye.txt"); f << "bye"; }
     HttpRequest delUp = makeRequest("DELETE", "/uploads/bye.txt");
-    // DELETE on /uploads uses location config, root = server root
     HttpResponse delR = HttpResponseBuilder::build(delUp, server);
-    check("DELETE in allowed location → 204",  delR.status == 204);
+    check("DELETE in allowed location → 204", delR.status == 204);
 }
 
 static void testUnknownMethod() {
@@ -248,8 +227,6 @@ static void testUnknownMethod() {
     HttpResponse r  = HttpResponseBuilder::build(req, server);
     check("unknown method → 405 (no crash)", r.status == 405);
 }
-
-// ── main ──────────────────────────────────────────────────────────────────────
 
 int main(int argc, char **argv) {
     if (argc != 2) {

@@ -298,7 +298,7 @@ std::string HttpResponseBuilder::statusMessage(int status) {
     return "Unknown";
 }
 
-HttpResponse HttpResponseBuilder::build(const HttpRequest &request, const ConfigBlock &server) {
+HttpResponse HttpResponseBuilder::build(const sockaddr_in &, const HttpRequest &request, const ConfigBlock &server) {
     static std::map<std::string, MethodHandler> methods = makeMethodMap();
 
     if (request.status != HTTP_OK)

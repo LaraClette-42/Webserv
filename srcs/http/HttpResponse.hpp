@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include <netinet/in.h>
 #include "HttpRequest.hpp"
 #include "../config/config.hpp"
 
@@ -17,7 +18,7 @@ struct HttpResponse {
 
 class HttpResponseBuilder {
 public:
-    static HttpResponse build(const HttpRequest &request, const ConfigBlock &config);
+    static HttpResponse build(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config);
     static std::string  statusMessage(int status);
 };
 
