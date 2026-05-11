@@ -124,7 +124,7 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
     if (CGI::isCGI(request.path)) {
         HttpResponse response;
         CGI cgi(clientAddr, request, config);
-        response.body = cgi.executeScript();  // Run CGI process
+        response.body = cgi.executeScript(config);  // Run CGI process
         response.status = HTTP_OK;
         return response;
     }
