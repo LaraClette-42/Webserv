@@ -312,26 +312,26 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
         return makeError(request.status, config);
 
     std::string strippedPath;
-    ConfigBlock config = resolveConfig(request.path, config, strippedPath);
+    ConfigBlock server = resolveConfig(request.path, config, strippedPath);
 
     HttpRequest adjusted  = request;
     adjusted.path         = strippedPath;
 
-    if (!config.redirect.empty())
-        return makeRedirect(config.redirect);
+    if (!server.redirect.empty())
+        return makeRedirect(server.redirect);
 
-    if (config.client_max_body_size > 0 &&
-        static_cast<long>(request.body.size()) > config.client_max_body_size)
-        return makeError(HTTP_CONTENT_TOO_LARGE, config);
+    if (server.client_max_body_size > 0 &&
+        static_cast<long>(request.body.size()) > server.client_max_body_size)
+        return makeError(HTTP_CONTENT_TOO_LARGE, server);
 
-    if (!config.allow_methods.empty() &&
-        config.allow_methods.find(adjusted.method) == config.allow_methods.end())
-        return makeError(HTTP_METHOD_NOT_ALLOWED, config);
+    if (!server.allow_methods.empty() &&
+        server.allow_methods.find(adjusted.method) == server.allow_methods.end())
+        return makeError(HTTP_METHOD_NOT_ALLOWED, server);
 
     std::map<std::string, MethodHandler>::iterator it = methods.find(adjusted.method);
     if (it == methods.end())
-        return makeError(HTTP_METHOD_NOT_ALLOWED, config);
+        return makeError(HTTP_METHOD_NOT_ALLOWED, server);
 
-    return it->second(adjusted, config);
+    return it->second(adjusted, server);
 }
 
