@@ -3,6 +3,7 @@
 
 #include <string>
 #include <map>
+#include <netinet/in.h>
 #include "HttpRequest.hpp"
 #include "../config/config.hpp"
 

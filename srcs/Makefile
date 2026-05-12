@@ -5,7 +5,8 @@ SRC= main.cpp \
 		http/HttpRequest.cpp \
 		http/HttpResponse.cpp \
 		config/config.cpp \
-		utils/utils.cpp
+		utils/utils.cpp \
+		cgi/CGI.cpp
 CPP= c++
 FLAGS= -Wall -Wextra -Werror -std=c++98
 RM= rm

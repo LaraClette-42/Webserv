@@ -1,6 +1,32 @@
 #include "HttpRequest.hpp"
 #include "HttpStatus.hpp"
 #include "../utils/utils.hpp"
+#include <cstdlib>
+
+static std::string unchunkBody(const std::string &chunked) {
+    std::string result;
+    size_t pos = 0;
+
+    while (pos < chunked.size()) {
+        size_t lineEnd = chunked.find("\r\n", pos);
+        if (lineEnd == std::string::npos)
+            break;
+        std::string sizeLine = chunked.substr(pos, lineEnd - pos);
+        size_t semi = sizeLine.find(';');
+        if (semi != std::string::npos)
+            sizeLine = sizeLine.substr(0, semi);
+        long chunkSize = std::strtol(sizeLine.c_str(), NULL, 16);
+        pos = lineEnd + 2;
+
+        if (chunkSize <= 0)
+            break;
+        if (pos + static_cast<size_t>(chunkSize) > chunked.size())
+            break;
+        result.append(chunked, pos, static_cast<size_t>(chunkSize));
+        pos += static_cast<size_t>(chunkSize) + 2;
+    }
+    return result;
+}
 
 void HttpParser::parseRequestLine(const std::string &line, HttpRequest &request) {
     size_t first = line.find(' ');
@@ -84,5 +110,10 @@ HttpRequest HttpParser::parse(const std::string &raw) {
         return request;
 
     request.body = raw.substr(position);
+
+    std::map<std::string, std::string>::const_iterator te = request.headers.find("Transfer-Encoding");
+    if (te != request.headers.end() && te->second.find("chunked") != std::string::npos)
+        request.body = unchunkBody(request.body);
+
     return request;
 }
