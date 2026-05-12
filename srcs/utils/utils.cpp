@@ -1,4 +1,5 @@
 #include "utils.hpp"
+#include "../config/config.hpp"
 #include <sstream>
 
 std::string trim(const std::string &s) {
@@ -14,8 +15,10 @@ std::string lineErr(const std::string &msg, int line) {
     return oss.str();
 }
 
+
 std::string intToString(int n) {
     std::ostringstream oss;
     oss << n;
     return oss.str();
 }
+

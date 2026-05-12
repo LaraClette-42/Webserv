@@ -299,7 +299,7 @@ std::string HttpResponseBuilder::statusMessage(int status) {
     return "Unknown";
 }
 
-HttpResponse HttpResponseBuilder::build(const sockaddr_in &, const HttpRequest &request, const ConfigBlock &server) {
+HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config) {
     static std::map<std::string, MethodHandler> methods = makeMethodMap();
     if (CGI::isCGI(request.path)) {
         HttpResponse response;
@@ -309,10 +309,10 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &, const HttpRequest &
         return response;
     }
     if (request.status != HTTP_OK)
-        return makeError(request.status, server);
+        return makeError(request.status, config);
 
     std::string strippedPath;
-    ConfigBlock config = resolveConfig(request.path, server, strippedPath);
+    ConfigBlock config = resolveConfig(request.path, config, strippedPath);
 
     HttpRequest adjusted  = request;
     adjusted.path         = strippedPath;

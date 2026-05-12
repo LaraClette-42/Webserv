@@ -1,6 +1,7 @@
 #ifndef HTTP_STATUS_HPP
 #define HTTP_STATUS_HPP
 
+#define HTTP_INCOMPLETE_REQUEST     1000
 #define HTTP_OK                     200
 #define HTTP_CREATED                201
 #define HTTP_NO_CONTENT             204

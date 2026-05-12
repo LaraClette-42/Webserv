@@ -7,6 +7,10 @@
 #include <set>
 #include <fstream>
 #include <stdexcept>
+#include <iostream>
+#include <sstream>
+#include <cstdlib>
+
 
 struct ConfigBlock {
     std::string                        host;
