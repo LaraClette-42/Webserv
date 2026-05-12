@@ -159,7 +159,7 @@ static ConfigBlock resolveConfig(const std::string &path, const ConfigBlock &ser
         merged.cgi_pass = best->cgi_pass;
     if (!best->error_pages.empty())
         merged.error_pages = best->error_pages;
-    if (best->client_max_body_size != 1048576)
+    if (best->client_max_body_size != -1)
         merged.client_max_body_size = best->client_max_body_size;
     return merged;
 }
@@ -170,8 +170,12 @@ static HttpResponse handleGet(const HttpRequest &request, const ConfigBlock &con
 
     struct stat info;
     if (stat(filePath.c_str(), &info) == 0 && S_ISDIR(info.st_mode)) {
-        if (filePath[filePath.size() - 1] != '/')
-            filePath += '/';
+        if (filePath[filePath.size() - 1] != '/') {
+            std::string redirectUrl = request.path + "/";
+            if (!request.query.empty())
+                redirectUrl += "?" + request.query;
+            return makeRedirect(redirectUrl);
+        }
         bool indexFound = false;
         for (size_t i = 0; i < config.index.size(); ++i) {
             struct stat candidate;
@@ -313,6 +317,8 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
 
     std::string strippedPath;
     ConfigBlock server = resolveConfig(request.path, config, strippedPath);
+    if (server.client_max_body_size == -1)
+        server.client_max_body_size = 1048576;
 
     HttpRequest adjusted  = request;
     adjusted.path         = strippedPath;

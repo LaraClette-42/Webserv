@@ -5,7 +5,7 @@
 
 std::string trim(const std::string &s);
 std::string lineErr(const std::string &msg, int line);
-
 std::string intToString(int n);
+std::string toLower(const std::string &s);
 
 #endif

@@ -22,7 +22,7 @@
   <h1>Uploader une image</h1>
   
   <!-- Formulaire d'upload -->
-  <form id="uploadForm" method="POST" enctype="multipart/form-data">
+  <form id="uploadForm">
     <label for="image">Choisir une image :</label>
     <input type="file" id="image" name="image" accept="image/*" required>
     <br><br>
@@ -34,14 +34,16 @@
     const form = document.getElementById('uploadForm');
 
     form.addEventListener('submit', async (e) => {
-      e.preventDefault(); // Empeche le rechargement de la page
+      e.preventDefault();
 
-      const formData = new FormData(form);
+      const file = document.getElementById('image').files[0];
+      if (!file) return;
 
       try {
-        const response = await fetch(form.action, {
+        const response = await fetch('/uploads/' + file.name, {
           method: 'POST',
-          body: formData
+          headers: { 'Content-Type': file.type },
+          body: file
         });
 
         if (response.ok) {

@@ -46,7 +46,7 @@ async function deleteFile() {
     }
 
     try {
-        const response = await fetch('/scripts/DELETE.py', {
+        const response = await fetch('/cgi-bin/DELETE.py', {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'text/plain'

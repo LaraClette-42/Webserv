@@ -79,7 +79,7 @@ void HttpParser::parseHeaders(const std::string &raw, size_t &position, HttpRequ
             return;
         }
 
-        std::string key = trim(line.substr(0, dbpoint));
+        std::string key = toLower(trim(line.substr(0, dbpoint)));
         std::string value = trim(line.substr(dbpoint + 1));
         request.headers[key] = value;
     }
@@ -88,10 +88,15 @@ void HttpParser::parseHeaders(const std::string &raw, size_t &position, HttpRequ
 HttpRequest HttpParser::parse(const std::string &raw) {
     HttpRequest request;
 
+    if (raw.find("\r\n\r\n") == std::string::npos && raw.find("\n\n") == std::string::npos) {
+        request.status = HTTP_INCOMPLETE_REQUEST;
+        return request;
+    }
+
     size_t firstLine = raw.find("\r\n");
-    if (firstLine == std::string::npos) 
+    if (firstLine == std::string::npos)
         firstLine = raw.find('\n');
-    if (firstLine == std::string::npos) { 
+    if (firstLine == std::string::npos) {
         request.status = HTTP_BAD_REQUEST;
         return request;
     }
@@ -109,11 +114,27 @@ HttpRequest HttpParser::parse(const std::string &raw) {
     if (request.status != HTTP_OK)
         return request;
 
-    request.body = raw.substr(position);
+    std::map<std::string, std::string>::const_iterator te = request.headers.find("transfer-encoding");
+    if (te != request.headers.end() && te->second.find("chunked") != std::string::npos) {
+        request.body = unchunkBody(raw.substr(position));
+        return request;
+    }
 
-    std::map<std::string, std::string>::const_iterator te = request.headers.find("Transfer-Encoding");
-    if (te != request.headers.end() && te->second.find("chunked") != std::string::npos)
-        request.body = unchunkBody(request.body);
+    std::map<std::string, std::string>::const_iterator cl = request.headers.find("content-length");
+    if (cl != request.headers.end()) {
+        char *end;
+        long contentLength = std::strtol(cl->second.c_str(), &end, 10);
+        if (*end != '\0' || contentLength < 0) {
+            request.status = HTTP_BAD_REQUEST;
+            return request;
+        }
+        size_t len = static_cast<size_t>(contentLength);
+        if (position + len > raw.size()) {
+            request.status = HTTP_INCOMPLETE_REQUEST;
+            return request;
+        }
+        request.body = raw.substr(position, len);
+    }
 
     return request;
 }

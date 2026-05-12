@@ -18,8 +18,8 @@ void CGI::setupEnvironment(const sockaddr_in &clientAddr, const HttpRequest &req
     _env["SCRIPT_NAME"] = request.path;
     _env["QUERY_STRING"] = request.query;
     _env["CONTENT_LENGTH"] = intToString(request.body.length());
-    _env["CONTENT_TYPE"] = request.headers.count("Content-Type") ? 
-                         request.headers.at("Content-Type") : "";
+    _env["CONTENT_TYPE"] = request.headers.count("content-type") ? 
+                         request.headers.at("content-type") : "";
     _env["SERVER_PROTOCOL"] = request.version;
     _env["SERVER_NAME"] = config.server_name;
     _env["SERVER_PORT"] = intToString(config.port);
