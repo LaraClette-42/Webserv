@@ -1,6 +1,7 @@
 #include "HttpResponse.hpp"
 #include "HttpStatus.hpp"
 #include "../utils/utils.hpp"
+#include "../cgi/CGI.hpp"
 #include <sstream>
 #include <fstream>
 #include <dirent.h>
@@ -300,7 +301,13 @@ std::string HttpResponseBuilder::statusMessage(int status) {
 
 HttpResponse HttpResponseBuilder::build(const sockaddr_in &, const HttpRequest &request, const ConfigBlock &server) {
     static std::map<std::string, MethodHandler> methods = makeMethodMap();
-
+    if (CGI::isCGI(request.path)) {
+        HttpResponse response;
+        CGI cgi(clientAddr, request, config);
+        response.body = cgi.executeScript(config);  // Run CGI process
+        response.status = HTTP_OK;
+        return response;
+    }
     if (request.status != HTTP_OK)
         return makeError(request.status, server);
 
@@ -327,3 +334,4 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &, const HttpRequest &
 
     return it->second(adjusted, config);
 }
+
