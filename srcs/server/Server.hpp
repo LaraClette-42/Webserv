@@ -34,7 +34,6 @@ private:
 
 public:
     Server(const std::vector<ConfigBlock>& config);
-    static std::string formatIPv4(const sockaddr_in& addr);
 
     ~Server();
 

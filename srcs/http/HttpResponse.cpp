@@ -271,8 +271,14 @@ static std::map<std::string, MethodHandler> makeMethodMap() {
 std::string HttpResponse::serialize() const {
     std::ostringstream oss;
     oss << "HTTP/1.1 " << status << " " << HttpResponseBuilder::statusMessage(status) << "\r\n";
-    for (std::map<std::string, std::string>::const_iterator it = headers.begin(); it != headers.end(); ++it)
+    bool hasConnection = false;
+    for (std::map<std::string, std::string>::const_iterator it = headers.begin(); it != headers.end(); ++it) {
+        if (it->first == "Connection" || it->first == "connection")
+            hasConnection = true;
         oss << it->first << ": " << it->second << "\r\n";
+    }
+    if (!hasConnection)
+        oss << "Connection: close\r\n";
     oss << "\r\n" << body;
     return oss.str();
 }
@@ -305,13 +311,7 @@ std::string HttpResponseBuilder::statusMessage(int status) {
 
 HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config) {
     static std::map<std::string, MethodHandler> methods = makeMethodMap();
-    if (CGI::isCGI(request.path)) {
-        HttpResponse response;
-        CGI cgi(clientAddr, request, config);
-        response.body = cgi.executeScript(config);  // Run CGI process
-        response.status = HTTP_OK;
-        return response;
-    }
+
     if (request.status != HTTP_OK)
         return makeError(request.status, config);
 
@@ -329,6 +329,16 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
     if (server.client_max_body_size > 0 &&
         static_cast<long>(request.body.size()) > server.client_max_body_size)
         return makeError(HTTP_CONTENT_TOO_LARGE, server);
+
+    if (CGI::isCGI(request.path)) {
+        HttpResponse response;
+        CGI cgi(clientAddr, adjusted, server);
+        response.body = cgi.executeScript(server);
+        response.status = HTTP_OK;
+        response.headers["Content-Type"] = "text/html; charset=utf-8";
+        response.headers["Content-Length"] = intToString(response.body.size());
+        return response;
+    }
 
     if (!server.allow_methods.empty() &&
         server.allow_methods.find(adjusted.method) == server.allow_methods.end())

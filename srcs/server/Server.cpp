@@ -2,6 +2,7 @@
 #include "../http/HttpRequest.hpp"
 #include "../http/HttpResponse.hpp"
 #include "../http/HttpStatus.hpp"
+#include "../utils/utils.hpp"
 
 Server::Server(const std::vector<ConfigBlock>& config)
     : _servers(config) {
@@ -14,28 +15,6 @@ Server::~Server() {
     for (std::vector<int>::const_iterator it = _server_fds.begin(); it != _server_fds.end(); ++it) {
         close(*it);
     }
-}
-
-static void setNonBlocking(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags == -1) {
-        throw std::runtime_error("fcntl(F_GETFL) failed");
-    }
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
-        throw std::runtime_error("fcntl(F_SETFL) failed");
-    }
-}
-
-std::string Server::formatIPv4(const sockaddr_in& addr) {
-    const unsigned int ip = ntohl(addr.sin_addr.s_addr);
-    const unsigned int a = (ip >> 24) & 0xFF;
-    const unsigned int b = (ip >> 16) & 0xFF;
-    const unsigned int c = (ip >> 8) & 0xFF;
-    const unsigned int d = ip & 0xFF;
-
-    std::stringstream ss;
-    ss << a << "." << b << "." << c << "." << d << ":" << ntohs(addr.sin_port);
-    return ss.str();
 }
 
 bool Server::isServerFd(int fd) const {
@@ -75,7 +54,7 @@ int Server::createSocket(const ConfigBlock& config) {
         throw std::runtime_error("Cannot set SO_REUSEADDR");
     }
     try {
-        setNonBlocking(fd);
+        setNonBlockingFd(fd);
     } catch (...) {
         close(fd);
         throw std::runtime_error("Cannot set listening socket to non-blocking");
@@ -105,7 +84,7 @@ void Server::handleNewConnection(int listenFd, fd_set& fds, int& fdMax) {
     if (new_fd == -1)
         return;
     try {
-        setNonBlocking(new_fd);
+        setNonBlockingFd(new_fd);
     } catch (std::exception &e) {
         std::cout << "Error: " << e.what() << std::endl;
         close(new_fd);
@@ -145,6 +124,9 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
         return;
     }
     HttpRequest request = HttpParser::parse(client.read_buffer);
+    if (request.status == HTTP_INCOMPLETE_REQUEST) {
+        return;
+    }
     if (request.status != HTTP_OK) {
         removeClient(clientFd, fds);
         return;
@@ -166,8 +148,20 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
     client.requests.erase(client.requests.begin());
     client.write_buffer = response.serialize();
     client.write_offset = 0;
-    client.should_close = false;
+    client.should_close = true;
     client.state = Client::WRITING_RESPONSE;
+
+    while (_clients.find(clientFd) != _clients.end()) {
+        Client& c = _clients.find(clientFd)->second;
+        if (c.write_offset >= c.write_buffer.size())
+            break;
+        const std::size_t before = c.write_offset;
+        handleClientWrite(clientFd, fds);
+        if (_clients.find(clientFd) == _clients.end())
+            return;
+        if (_clients.find(clientFd)->second.write_offset == before)
+            break;
+    }
 }
 
 void Server::handleClientWrite(int clientFd, fd_set& fds) {
@@ -184,7 +178,10 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
     const char* data = client.write_buffer.c_str() + client.write_offset;
     const std::size_t remaining = client.write_buffer.size() - client.write_offset;
     const ssize_t sent = send(clientFd, data, remaining, 0);
-    if (sent <= 0) {  
+    if (sent <= 0) {
+        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            return;
+        }
         removeClient(clientFd, fds);
         return;
     }

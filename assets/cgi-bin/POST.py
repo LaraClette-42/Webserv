@@ -6,7 +6,7 @@ import re
 try:
 	content_length = int(os.environ.get("CONTENT_LENGTH", 0))
 	content_type = os.environ.get("CONTENT_TYPE", "")
-	upload_path = os.environ.get("UPLOAD_PATH", "")
+	upload_path = os.environ.get("UPLOAD_PATH", "www/uploads")
 
 	raw_body = b''
 	while len(raw_body) < content_length:
@@ -28,7 +28,10 @@ try:
 		print("No boundary")
 		sys.exit(1)
 
-	boundary = content_type.split("boundary=")[1]
+	boundary = content_type.split("boundary=")[1].strip()
+	if boundary.startswith('"') and boundary.endswith('"'):
+		boundary = boundary[1:-1]
+	boundary = boundary.split(';')[0].strip()
 	header_end = raw_body.find(b'\r\n\r\n')
 	if header_end == -1:
 		sys.stderr.write("ERROR: Could not find end of headers\n")

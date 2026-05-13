@@ -4,6 +4,10 @@
 #include "../config/config.hpp"
 #include "../utils/utils.hpp"
 
+#include <cerrno>
+#include <signal.h>
+#include <sys/select.h>
+
 CGI::CGI(const sockaddr_in &clientAddr, const HttpRequest &request,
     const ConfigBlock &config) : _body(request.body)
 {
@@ -23,10 +27,13 @@ void CGI::setupEnvironment(const sockaddr_in &clientAddr, const HttpRequest &req
     _env["SERVER_PROTOCOL"] = request.version;
     _env["SERVER_NAME"] = config.server_name;
     _env["SERVER_PORT"] = intToString(config.port);
-    _env["REMOTE_ADDR"] = Server::formatIPv4(clientAddr);
+    _env["REMOTE_ADDR"] = formatIPv4(clientAddr);
     _env["REMOTE_HOST"] = "localhost";
     _env["PATH_TRANSLATED"] = config.root + request.path;
-    _env["GATEWAY_INTERFACE"] = "CGI/1.1";  
+    _env["GATEWAY_INTERFACE"] = "CGI/1.1";
+    if (!config.upload_store.empty()) {
+        _env["UPLOAD_PATH"] = config.upload_store;
+    }
 }
 
 char** CGI::getEnvStr() const {
@@ -75,20 +82,116 @@ std::string CGI::executeScript(const ConfigBlock &config) {
     close(FdIn[0]);
     close(FdOut[1]);
 
-    write(FdIn[1], _body.data(), _body.size());
-    close(FdIn[1]);
+    setNonBlockingFd(FdIn[1]);
+    setNonBlockingFd(FdOut[0]);
 
+    const int in_write = FdIn[1];
+    const int out_read = FdOut[0];
+
+    const char *bodyPtr = _body.data();
+    std::size_t bodyLeft = _body.size();
+    bool stdin_open = true;
+    bool stdout_eof = false;
     std::string output;
     char buffer[4096];
-    ssize_t n;
-    while ((n = read(FdOut[0], buffer, sizeof(buffer))) > 0)
-        output.append(buffer, n);
-    close(FdOut[0]);
 
-    int status;
+    if (bodyLeft == 0) {
+        close(in_write);
+        stdin_open = false;
+    }
+
+    while (1) {
+        if (stdout_eof && !stdin_open)
+            break;
+
+        fd_set readfds, writefds;
+        FD_ZERO(&readfds);
+        FD_ZERO(&writefds);
+        int fd_max = -1;
+
+        if (!stdout_eof) {
+            FD_SET(out_read, &readfds);
+            fd_max = out_read;
+        }
+        if (stdin_open && bodyLeft > 0) {
+            FD_SET(in_write, &writefds);
+            if (in_write > fd_max)
+                fd_max = in_write;
+        }
+
+        if (fd_max < 0)
+            break;
+
+        int rc = select(fd_max + 1, &readfds, &writefds, NULL, NULL);
+        if (rc < 0) {
+            if (errno == EINTR)
+                continue;
+            if (stdin_open)
+                close(in_write);
+            close(out_read);
+            kill(pid, SIGKILL);
+            waitpid(pid, NULL, 0);
+            throw std::runtime_error("CGI: select failed");
+        }
+
+        if (FD_ISSET(out_read, &readfds)) {
+            for (;;) {
+                ssize_t n = read(out_read, buffer, sizeof(buffer));
+                if (n > 0)
+                    output.append(buffer, static_cast<std::size_t>(n));
+                else if (n == 0) {
+                    stdout_eof = true;
+                    break;
+                } else if (errno == EAGAIN || errno == EWOULDBLOCK)
+                    break;
+                else {
+                    if (stdin_open)
+                        close(in_write);
+                    close(out_read);
+                    kill(pid, SIGKILL);
+                    waitpid(pid, NULL, 0);
+                    throw std::runtime_error("CGI: read from stdout failed");
+                }
+            }
+        }
+
+        if (stdin_open && bodyLeft > 0 && FD_ISSET(in_write, &writefds)) {
+            for (;;) {
+                ssize_t w = write(in_write, bodyPtr, bodyLeft);
+                if (w > 0) {
+                    bodyPtr += static_cast<std::size_t>(w);
+                    bodyLeft -= static_cast<std::size_t>(w);
+                } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+                    break;
+                else {
+                    if (stdin_open)
+                        close(in_write);
+                    close(out_read);
+                    kill(pid, SIGKILL);
+                    waitpid(pid, NULL, 0);
+                    throw std::runtime_error("CGI: write to stdin failed");
+                }
+                if (bodyLeft == 0)
+                    break;
+            }
+        }
+
+        if (stdin_open && bodyLeft == 0) {
+            close(in_write);
+            stdin_open = false;
+        }
+
+        if (stdout_eof && stdin_open) {
+            close(in_write);
+            stdin_open = false;
+        }
+    }
+
+    close(out_read);
+
+    int status = 0;
     waitpid(pid, &status, 0);
     return output;
-
 }
 
 bool CGI::isCGI(const std::string& path) {
