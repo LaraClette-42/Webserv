@@ -149,7 +149,7 @@ static bool prefixMatches(const std::string &prefix, const std::string &path) {
     return path.size() == prefix.size() || path[prefix.size()] == '/' || prefix[prefix.size() - 1] == '/';
 }
 
-static ConfigBlock resolveConfig(const std::string &path, const ConfigBlock &server,
+ConfigBlock HttpResponseBuilder::resolveConfig(const std::string &path, const ConfigBlock &server,
                                  std::string &strippedPath) {
     const ConfigBlock *best = NULL;
     size_t             bestLen = 0;
@@ -372,8 +372,9 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
         struct stat scriptStat;
         if (stat((server.root + adjusted.path).c_str(), &scriptStat) != 0)
             return makeError(HTTP_NOT_FOUND, server);
-        CGI cgi(clientAddr, adjusted, server);
-        return parseCGIResponse(cgi.executeScript(server));
+        HttpResponse cgiResponse;
+        cgiResponse.status = HTTP_CGI_PENDING;
+        return cgiResponse;
     }
 
     if (!server.allow_methods.empty() &&

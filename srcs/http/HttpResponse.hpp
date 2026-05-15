@@ -20,6 +20,8 @@ class HttpResponseBuilder {
 public:
     static HttpResponse build(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config);
     static std::string  statusMessage(int status);
+    static ConfigBlock resolveConfig(const std::string &path, const ConfigBlock &server,
+                                 std::string &strippedPath);
 };
 
 #endif
