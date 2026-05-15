@@ -43,7 +43,7 @@ uint32_t getHost(std::string host) {
     return res;
 }
 
-int Server::createSocket(const ConfigBlock& config) {
+int Server::createSocket(const ListenAddr& addr) {
     const int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
         throw std::runtime_error("Cannot create socket");
@@ -62,9 +62,8 @@ int Server::createSocket(const ConfigBlock& config) {
     sockaddr_in server_addr;
     std::memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(config.port);
-
-    server_addr.sin_addr.s_addr = getHost(config.host);
+    server_addr.sin_port = htons(addr.port);
+    server_addr.sin_addr.s_addr = getHost(addr.host);
     if (bind(fd, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
         close(fd);
         throw std::runtime_error("Cannot bind to IP port");
@@ -136,13 +135,9 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
     if (!client.write_buffer.empty() || client.requests.empty())
         return;
     ConfigBlock activeServer = _servers.front();
-    std::vector<int>::const_iterator listenIt =
-        std::find(_server_fds.begin(), _server_fds.end(), client.listen_fd);
-    if (listenIt != _server_fds.end()) {
-        std::size_t index = static_cast<std::size_t>(listenIt - _server_fds.begin());
-        if (index < _servers.size())
-            activeServer = _servers[index];
-    }
+    std::map<int, std::size_t>::const_iterator listenIt = _fd_to_server.find(client.listen_fd);
+    if (listenIt != _fd_to_server.end() && listenIt->second < _servers.size())
+        activeServer = _servers[listenIt->second];
 
     HttpResponse response = HttpResponseBuilder::build(client.peer_addr, client.requests.front(), activeServer);
     client.requests.erase(client.requests.begin());
@@ -192,13 +187,9 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
             return;
         }
         ConfigBlock activeServer = _servers.front();
-        std::vector<int>::const_iterator listenIt =
-            std::find(_server_fds.begin(), _server_fds.end(), client.listen_fd);
-        if (listenIt != _server_fds.end()) {
-            std::size_t index = static_cast<std::size_t>(listenIt - _server_fds.begin());
-            if (index < _servers.size())
-                activeServer = _servers[index];
-        }
+        std::map<int, std::size_t>::const_iterator listenIt = _fd_to_server.find(client.listen_fd);
+        if (listenIt != _fd_to_server.end() && listenIt->second < _servers.size())
+            activeServer = _servers[listenIt->second];
         if (!client.requests.empty()) {
             HttpResponse response = HttpResponseBuilder::build(client.peer_addr,client.requests.front(), activeServer);
             client.requests.erase(client.requests.begin());
@@ -215,8 +206,13 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
 }
 
 void Server::run() {
-    for (std::vector<ConfigBlock>::const_iterator it = _servers.begin(); it != _servers.end(); ++it) {
-        _server_fds.push_back(createSocket(*it));
+    for (std::size_t i = 0; i < _servers.size(); ++i) {
+        const std::vector<ListenAddr>& listens = _servers[i].listens;
+        for (std::size_t j = 0; j < listens.size(); ++j) {
+            int fd = createSocket(listens[j]);
+            _server_fds.push_back(fd);
+            _fd_to_server[fd] = i;
+        }
     }
     fd_set fds, readfds, writefds;
     FD_ZERO(&fds);

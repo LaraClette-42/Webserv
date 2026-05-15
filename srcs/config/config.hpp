@@ -12,9 +12,13 @@
 #include <cstdlib>
 
 
+struct ListenAddr {
+    std::string host;
+    int         port;
+};
+
 struct ConfigBlock {
-    std::string                        host;
-    int                                port;
+    std::vector<ListenAddr>            listens;
     std::string                        server_name;
     std::string                        root;
     std::vector<std::string>           index;

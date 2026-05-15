@@ -21,11 +21,12 @@
 
 class Server {
 private:
-    std::vector<int> _server_fds;
-    std::vector<ConfigBlock> _servers;
-    std::map<int, Client> _clients;
+    std::vector<int>          _server_fds;
+    std::map<int, std::size_t> _fd_to_server;
+    std::vector<ConfigBlock>  _servers;
+    std::map<int, Client>     _clients;
 
-    int createSocket(const ConfigBlock& port);
+    int createSocket(const ListenAddr& addr);
     bool isServerFd(int fd) const;
     void handleNewConnection(int listenFd, fd_set& fds, int& fdMax);
     void handleClientRead(int clientFd, fd_set& fds);

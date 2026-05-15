@@ -6,16 +6,18 @@
 typedef void (*Handler)(ConfigBlock &, const std::string &);
 
 static void handleListen(ConfigBlock &block, const std::string &value) {
+    ListenAddr addr;
     size_t colon = value.rfind(':');
     if (colon == std::string::npos) {
-        block.host = "0.0.0.0";
-        block.port = std::atoi(value.c_str());
+        addr.host = "0.0.0.0";
+        addr.port = std::atoi(value.c_str());
     } else {
-        block.host = value.substr(0, colon);
-        block.port = std::atoi(value.substr(colon + 1).c_str());
+        addr.host = value.substr(0, colon);
+        addr.port = std::atoi(value.substr(colon + 1).c_str());
     }
-    if (block.port <= 0 || block.port > 65535)
+    if (addr.port <= 0 || addr.port > 65535)
         throw std::invalid_argument("listen: invalid port");
+    block.listens.push_back(addr);
 }
 
 static void handleServerName(ConfigBlock &block, const std::string &value) {
@@ -96,7 +98,7 @@ static std::map<std::string, Handler> makeDispatchMap() {
 }
 
 ConfigBlock::ConfigBlock()
-    : port(80), client_max_body_size(-1), autoindex(false) {}
+    : client_max_body_size(-1), autoindex(false) {}
 
 const std::vector<ConfigBlock>& ConfigFile::getServers() const {
     return _servers;

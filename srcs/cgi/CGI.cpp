@@ -26,7 +26,7 @@ void CGI::setupEnvironment(const sockaddr_in &clientAddr, const HttpRequest &req
                          request.headers.at("content-type") : "";
     _env["SERVER_PROTOCOL"] = request.version;
     _env["SERVER_NAME"] = config.server_name;
-    _env["SERVER_PORT"] = intToString(config.port);
+    _env["SERVER_PORT"] = intToString(config.listens.empty() ? 80 : config.listens[0].port);
     _env["REMOTE_ADDR"] = formatIPv4(clientAddr);
     _env["REMOTE_HOST"] = "localhost";
     _env["PATH_TRANSLATED"] = config.root + request.path;
@@ -191,9 +191,12 @@ std::string CGI::executeScript(const ConfigBlock &config) {
 
     int status = 0;
     waitpid(pid, &status, 0);
+    for (int i = 0; envp[i] != NULL; ++i)
+        delete[] envp[i];
+    delete[] envp;
     return output;
 }
 
-bool CGI::isCGI(const std::string& path) {
-    return path.find("/cgi-bin/") == 0;
-}
+// bool CGI::isCGI(const std::string& path) {
+//     return path.find("/cgi-bin/") == 0;
+// }

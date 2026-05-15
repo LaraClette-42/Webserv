@@ -71,6 +71,40 @@ static HttpResponse makeError(int status, const ConfigBlock &config) {
     return response;
 }
 
+static HttpResponse parseCGIResponse(const std::string &raw) {
+    HttpResponse response;
+    response.status = HTTP_OK;
+
+    size_t sep = raw.find("\r\n\r\n");
+    size_t sepLen = 4;
+    if (sep == std::string::npos) { sep = raw.find("\n\n"); sepLen = 2; }
+
+    if (sep == std::string::npos) {
+        response.body = raw;
+    } else {
+        std::istringstream iss(raw.substr(0, sep));
+        std::string line;
+        while (std::getline(iss, line)) {
+            if (!line.empty() && line[line.size() - 1] == '\r')
+                line.erase(line.size() - 1);
+            size_t colon = line.find(':');
+            if (colon == std::string::npos) continue;
+            std::string key = trim(line.substr(0, colon));
+            std::string val = trim(line.substr(colon + 1));
+            if (toLower(key) == "status")
+                response.status = std::atoi(val.c_str());
+            else
+                response.headers[key] = val;
+        }
+        response.body = raw.substr(sep + sepLen);
+    }
+
+    if (!response.headers.count("Content-Type"))
+        response.headers["Content-Type"] = "text/html";
+    response.headers["Content-Length"] = intToString(response.body.size());
+    return response;
+}
+
 static HttpResponse makeRedirect(const std::string &url) {
     HttpResponse response;
     response.status = HTTP_MOVED_PERMANENTLY;
@@ -330,14 +364,16 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
         static_cast<long>(request.body.size()) > server.client_max_body_size)
         return makeError(HTTP_CONTENT_TOO_LARGE, server);
 
-    if (CGI::isCGI(request.path)) {
-        HttpResponse response;
+    size_t dot = adjusted.path.find_last_of('.');
+    if (dot != std::string::npos && server.cgi_pass.count(adjusted.path.substr(dot))) {
+        if (!server.allow_methods.empty() &&
+            server.allow_methods.find(adjusted.method) == server.allow_methods.end())
+            return makeError(HTTP_METHOD_NOT_ALLOWED, server);
+        struct stat scriptStat;
+        if (stat((server.root + adjusted.path).c_str(), &scriptStat) != 0)
+            return makeError(HTTP_NOT_FOUND, server);
         CGI cgi(clientAddr, adjusted, server);
-        response.body = cgi.executeScript(server);
-        response.status = HTTP_OK;
-        response.headers["Content-Type"] = "text/html; charset=utf-8";
-        response.headers["Content-Length"] = intToString(response.body.size());
-        return response;
+        return parseCGIResponse(cgi.executeScript(server));
     }
 
     if (!server.allow_methods.empty() &&

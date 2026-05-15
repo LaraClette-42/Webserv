@@ -1,7 +1,6 @@
 SRC=	srcs/main.cpp \
 		srcs/server/Server.cpp \
 		srcs/server/Client.cpp \
-		srcs/server/Response.cpp \
 		srcs/http/HttpRequest.cpp \
 		srcs/http/HttpResponse.cpp \
 		srcs/config/config.cpp \
@@ -11,7 +10,7 @@ SRC=	srcs/main.cpp \
 CXX=	c++
 CXXFLAGS=	-Wall -Wextra -Werror -std=c++98
 RM=		rm
-NAME=	webz
+NAME=	webserv
 
 OBJ=	${SRC:.cpp=.o}
 
