@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CGI POST - webserv</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f0f0f0; margin: 0; padding: 40px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 6px; padding: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        p { color: #555; font-size: 0.9em; }
+        textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9em; margin: 16px 0; resize: vertical; }
+        button { background: #3498db; color: white; border: none; padding: 10px 22px; border-radius: 4px; cursor: pointer; font-size: 0.95em; }
+        button:hover { background: #2980b9; }
+        pre { margin-top: 16px; padding: 12px; background: #f8f8f8; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; white-space: pre-wrap; word-break: break-word; display: none; }
+        a { color: #2980b9; text-decoration: none; font-size: 0.9em; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CGI POST</h1>
+        <p>POST request sent to <code>/cgi-bin/test.py</code>.</p>
+        <textarea id="body" rows="4" placeholder="user=test&action=login"></textarea>
+        <button onclick="send()">Send</button>
+        <pre id="result"></pre>
+        <br>
+        <a href="/">← Back to index</a>
+    </div>
+
+    <script>
+    function send() {
+        var body = document.getElementById('body').value;
+        var result = document.getElementById('result');
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/cgi-bin/test.py', true);
+        xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        xhr.onload = function() {
+            result.textContent = 'Status: ' + xhr.status + '\n\n' + xhr.responseText;
+            result.style.display = 'block';
+        };
+        xhr.onerror = function() { result.textContent = 'Network error.'; result.style.display = 'block'; };
+        xhr.send(body);
+    }
+    </script>
+</body>
+</html>

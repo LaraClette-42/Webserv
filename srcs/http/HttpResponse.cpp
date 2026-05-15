@@ -204,8 +204,9 @@ static HttpResponse handleGet(const HttpRequest &request, const ConfigBlock &con
 
     struct stat info;
     if (stat(filePath.c_str(), &info) == 0 && S_ISDIR(info.st_mode)) {
-        if (filePath[filePath.size() - 1] != '/') {
-            std::string redirectUrl = request.path + "/";
+        const std::string &urlPath = request.url_path.empty() ? request.path : request.url_path;
+        if (urlPath[urlPath.size() - 1] != '/') {
+            std::string redirectUrl = urlPath + "/";
             if (!request.query.empty())
                 redirectUrl += "?" + request.query;
             return makeRedirect(redirectUrl);
@@ -221,7 +222,7 @@ static HttpResponse handleGet(const HttpRequest &request, const ConfigBlock &con
         }
         if (!indexFound) {
             if (config.autoindex) {
-                std::string body = buildAutoindex(request.path, filePath);
+                std::string body = buildAutoindex(urlPath, filePath);
                 if (body.empty())
                     return makeError(HTTP_FORBIDDEN, config);
                 response.status = HTTP_OK;
@@ -356,6 +357,7 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
 
     HttpRequest adjusted  = request;
     adjusted.path         = strippedPath;
+    adjusted.url_path     = request.path;
 
     if (!server.redirect.empty())
         return makeRedirect(server.redirect);

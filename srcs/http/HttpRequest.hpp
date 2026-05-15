@@ -8,6 +8,7 @@
 struct HttpRequest {
     std::string                        method;
     std::string                        path;
+    std::string                        url_path;
     std::string                        query;
     std::string                        version;
     std::map<std::string, std::string> headers;

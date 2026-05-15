@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CGI Test - webserv</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f0f0f0; margin: 0; padding: 40px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 6px; padding: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        label { display: block; margin: 16px 0 6px; color: #555; font-size: 0.9em; }
+        select, textarea { width: 100%; padding: 9px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95em; box-sizing: border-box; }
+        textarea { resize: vertical; }
+        .row { display: flex; gap: 8px; margin-top: 20px; }
+        button { flex: 1; background: #3498db; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; font-size: 0.95em; }
+        button:hover { background: #2980b9; }
+        button.active { background: #2c3e50; }
+        pre { margin-top: 20px; padding: 12px; background: #f8f8f8; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; white-space: pre-wrap; word-break: break-word; display: none; }
+        #post-section { display: none; margin-top: 0; }
+        a { color: #2980b9; text-decoration: none; font-size: 0.9em; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CGI Test</h1>
+
+        <label>Language</label>
+        <select id="lang">
+            <option value="test.py">Python (.py)</option>
+            <option value="test.pl">Perl (.pl)</option>
+            <option value="test.sh">Bash (.sh)</option>
+        </select>
+
+        <label>Method</label>
+        <select id="method" onchange="togglePost()">
+            <option value="GET">GET</option>
+            <option value="GET_QUERY">GET with query string</option>
+            <option value="POST">POST</option>
+        </select>
+
+        <div id="post-section">
+            <label>POST body</label>
+            <textarea id="body" rows="3" placeholder="user=test&action=login"></textarea>
+        </div>
+
+        <div class="row">
+            <button onclick="send()">Send</button>
+        </div>
+
+        <pre id="result"></pre>
+        <br>
+        <a href="/">← Back to index</a>
+    </div>
+
+    <script>
+    function togglePost() {
+        var method = document.getElementById('method').value;
+        document.getElementById('post-section').style.display = method === 'POST' ? 'block' : 'none';
+    }
+
+    function send() {
+        var lang   = document.getElementById('lang').value;
+        var method = document.getElementById('method').value;
+        var result = document.getElementById('result');
+        var url    = '/cgi-bin/' + lang;
+        var xhr    = new XMLHttpRequest();
+
+        if (method === 'GET_QUERY') {
+            url += '?name=webserv&lang=cpp';
+            xhr.open('GET', url, true);
+            xhr.send();
+        } else if (method === 'POST') {
+            var body = document.getElementById('body').value;
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+            xhr.send(body);
+        } else {
+            xhr.open('GET', url, true);
+            xhr.send();
+        }
+
+        xhr.onload = function() {
+            result.textContent = 'Status: ' + xhr.status + '\n\n' + xhr.responseText;
+            result.style.display = 'block';
+        };
+        xhr.onerror = function() {
+            result.textContent = 'Network error.';
+            result.style.display = 'block';
+        };
+    }
+    </script>
+</body>
+</html>

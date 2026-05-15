@@ -2,6 +2,7 @@
 #include "../utils/utils.hpp"
 #include <sstream>
 #include <cstdlib>
+#include <set>
 
 typedef void (*Handler)(ConfigBlock &, const std::string &);
 
@@ -168,4 +169,15 @@ void ConfigFile::parse(const std::string &path) {
     }
     if (_servers.empty())
         throw std::runtime_error("no server block found in " + path);
+
+    std::set<std::string> seen;
+    for (size_t i = 0; i < _servers.size(); ++i) {
+        for (size_t j = 0; j < _servers[i].listens.size(); ++j) {
+            const ListenAddr& addr = _servers[i].listens[j];
+            std::string key = addr.host + ":" + intToString(addr.port);
+            if (seen.count(key))
+                throw std::invalid_argument("duplicate listen address: " + key);
+            seen.insert(key);
+        }
+    }
 }

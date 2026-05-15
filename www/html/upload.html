@@ -2,16 +2,15 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Delete - webserv</title>
+    <title>Upload (no CGI) - webserv</title>
     <style>
         body { font-family: Arial, sans-serif; background: #f0f0f0; margin: 0; padding: 40px; }
         .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 6px; padding: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-        h1 { color: #2c3e50; border-bottom: 2px solid #e74c3c; padding-bottom: 10px; }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
         p { color: #555; font-size: 0.9em; }
-        .row { display: flex; gap: 8px; margin: 16px 0; }
-        input[type="text"] { flex: 1; padding: 9px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.95em; }
-        button { background: #e74c3c; color: white; border: none; padding: 10px 22px; border-radius: 4px; cursor: pointer; font-size: 0.95em; }
-        button:hover { background: #c0392b; }
+        input[type="file"] { margin: 16px 0; display: block; }
+        button { background: #3498db; color: white; border: none; padding: 10px 22px; border-radius: 4px; cursor: pointer; font-size: 0.95em; }
+        button:hover { background: #2980b9; }
         #result { margin-top: 16px; padding: 10px; border-radius: 4px; font-size: 0.9em; display: none; }
         .ok { background: #eafaf1; color: #27ae60; border: 1px solid #a9dfbf; display: block; }
         .err { background: #fdedec; color: #e74c3c; border: 1px solid #f5b7b1; display: block; }
@@ -21,30 +20,30 @@
 </head>
 <body>
     <div class="container">
-        <h1>Delete a file</h1>
-        <p>DELETE request sent to <code>/uploads/&lt;filename&gt;</code>.</p>
-        <div class="row">
-            <input type="text" id="filename" placeholder="filename.txt">
-            <button onclick="del()">Delete</button>
-        </div>
+        <h1>Upload a file <small style="font-size:0.5em;color:#888">(no CGI)</small></h1>
+        <p>POST request sent directly to <code>/uploads/&lt;filename&gt;</code>.</p>
+        <input type="file" id="file">
+        <button onclick="upload()">Upload</button>
         <div id="result"></div>
-        <br>
+        <br><br>
         <a href="/">← Back to index</a>
     </div>
 
     <script>
-    function del() {
-        var filename = document.getElementById('filename').value.trim();
+    function upload() {
+        var input = document.getElementById('file');
         var result = document.getElementById('result');
-        if (!filename) { result.textContent = 'Enter a filename.'; result.className = 'err'; return; }
+        if (!input.files[0]) { result.textContent = 'No file selected.'; result.className = 'err'; return; }
+        var file = input.files[0];
         var xhr = new XMLHttpRequest();
-        xhr.open('DELETE', '/uploads/' + filename, true);
+        xhr.open('POST', '/uploads/' + file.name, true);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
         xhr.onload = function() {
             result.textContent = xhr.status + ' ' + xhr.statusText;
             result.className = (xhr.status >= 200 && xhr.status < 300) ? 'ok' : 'err';
         };
         xhr.onerror = function() { result.textContent = 'Network error.'; result.className = 'err'; };
-        xhr.send();
+        xhr.send(file);
     }
     </script>
 </body>

@@ -1,36 +1,61 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>index</title>
-  <style>
-    body {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      background-color: #f0f0f0;
-      font-family: Arial, sans-serif;
-    }
-    h1 {
-      font-size: 5em;
-      color: #333;
-      margin-bottom: 20px;
-    }
-    a {
-      font-size: 1.5em;
-      color: #007BFF;
-      text-decoration: none;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <title>webserv</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f0f0f0; margin: 0; padding: 40px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 6px; padding: 32px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h2 { color: #3498db; margin-top: 24px; font-size: 1em; text-transform: uppercase; letter-spacing: 1px; }
+        ul { list-style: none; padding: 0; margin: 8px 0; }
+        li { padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+        a { color: #2980b9; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
 </head>
 <body>
-  <h1> index </h1>
-    <a href="/html/page2.html">← Vers page 2</a>
-    <a href="/html/imgNoCgi.html">← Envoyer une image !</a>
-    <a href="/html/imgBox.html">← Envoyer une image (CGI) !</a>
-    <a href="/html/delete.html">← Supprimer un fichier !</a>
-    <a href="/html/deleteCgi.html">← Supprimer un fichier (CGI) !</a>
+    <div class="container">
+        <h1>webserv</h1>
+
+        <h2>Static</h2>
+        <ul>
+            <li><a href="/html/page2.html">Page 2</a></li>
+            <li><a href="/list">Directory listing (autoindex)</a></li>
+            <li><a href="/redirect">Redirect → index</a></li>
+            <li><a href="/cette-page-nexiste-pas">Custom 404 error page</a></li>
+        </ul>
+
+        <h2>Upload</h2>
+        <ul>
+            <li><a href="/html/upload.html">Upload a file (no CGI)</a></li>
+            <li><a href="/html/cgi_upload.html">Upload a file (CGI)</a></li>
+            <li><a href="/uploads">Browse uploaded files</a></li>
+        </ul>
+
+        <h2>Delete</h2>
+        <ul>
+            <li><a href="/html/delete.html">Delete a file from /uploads</a></li>
+        </ul>
+
+        <h2>CGI</h2>
+        <ul>
+            <li><a href="/html/cgi_test.html">CGI test (Python / Perl / Bash)</a></li>
+        </ul>
+
+        <h2>Edge cases</h2>
+        <ul>
+            <li><a href="/cgi-bin/error.py">CGI returns 500</a></li>
+            <li><a href="/cgi-bin/error.py?code=403">CGI returns 403</a></li>
+            <li><a href="/cgi-bin/slow.py">Slow CGI (2s delay)</a></li>
+            <li><a href="/cgi-bin/slow.py?delay=5">Slow CGI (5s delay)</a></li>
+            <li><a href="/cgi-bin/TIMEOUT.py">Infinite loop CGI (timeout test)</a></li>
+        </ul>
+
+        <h2>Stress test</h2>
+        <ul>
+            <li><code>bash tests/stress.sh http://localhost:8080/ 200 20</code></li>
+        </ul>
+    </div>
 </body>
 </html>
