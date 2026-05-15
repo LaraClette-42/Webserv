@@ -31,8 +31,16 @@ void CGI::setupEnvironment(const sockaddr_in &clientAddr, const HttpRequest &req
     _env["REMOTE_HOST"] = "localhost";
     _env["PATH_TRANSLATED"] = config.root + request.path;
     _env["GATEWAY_INTERFACE"] = "CGI/1.1";
-    if (!config.upload_store.empty()) {
+    if (!config.upload_store.empty())
         _env["UPLOAD_PATH"] = config.upload_store;
+    for (std::map<std::string, std::string>::const_iterator it = request.headers.begin();
+         it != request.headers.end(); ++it) {
+        if (it->first == "content-type" || it->first == "content-length")
+            continue;
+        std::string key = "HTTP_";
+        for (std::size_t i = 0; i < it->first.size(); ++i)
+            key += (it->first[i] == '-') ? '_' : (char)toupper((unsigned char)it->first[i]);
+        _env[key] = it->second;
     }
 }
 
