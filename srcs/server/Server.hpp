@@ -17,7 +17,11 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include "../config/config.hpp"
+#include "../http/HttpRequest.hpp"
+#include "../http/HttpResponse.hpp"
+#include "../http/HttpStatus.hpp"
+#include "../utils/utils.hpp"
+#include "../cgi/CGI.hpp"
 
 class Server {
 private:
@@ -25,6 +29,7 @@ private:
     std::map<int, std::size_t> _fd_to_server;
     std::vector<ConfigBlock>  _servers;
     std::map<int, Client>     _clients;
+    int                       _fd_max;
 
     int createSocket(const ListenAddr& addr);
     bool isServerFd(int fd) const;
@@ -32,7 +37,9 @@ private:
     void handleClientRead(int clientFd, fd_set& fds);
     void handleClientWrite(int clientFd, fd_set& fds);
     void removeClient(int clientFd, fd_set& fds);
-
+    void processCGIResponse(Client &client, const ConfigBlock &server, fd_set &fds);
+    void handleCgiWrite(int clientFd, fd_set& fds);
+    void handleCgiRead(int clientFd, fd_set& fds);
 public:
     Server(const std::vector<ConfigBlock>& config);
 

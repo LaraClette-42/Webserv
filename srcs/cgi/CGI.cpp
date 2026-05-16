@@ -57,7 +57,7 @@ char** CGI::getEnvStr() const {
     return envStr;
 }
 
-std::string CGI::executeScript(const ConfigBlock &config) {
+CGIFd CGI::startCGI(const ConfigBlock &config) {
     std::string extension = _scriptPath.substr(_scriptPath.find_last_of('.'));
     std::map<std::string, std::string>::const_iterator it = config.cgi_pass.find(extension);
     if (it == config.cgi_pass.end())
@@ -86,125 +86,18 @@ std::string CGI::executeScript(const ConfigBlock &config) {
         execve(interpreter.c_str(), argv, envp);
         _exit(EXIT_FAILURE);
     }
-
     close(FdIn[0]);
     close(FdOut[1]);
-
     setNonBlockingFd(FdIn[1]);
     setNonBlockingFd(FdOut[0]);
 
-    const int in_write = FdIn[1];
-    const int out_read = FdOut[0];
-
-    const char *bodyPtr = _body.data();
-    std::size_t bodyLeft = _body.size();
-    bool stdin_open = true;
-    bool stdout_eof = false;
-    std::string output;
-    char buffer[4096];
-
-    if (bodyLeft == 0) {
-        close(in_write);
-        stdin_open = false;
-    }
-
-    while (1) {
-        if (stdout_eof && !stdin_open)
-            break;
-
-        fd_set readfds, writefds;
-        FD_ZERO(&readfds);
-        FD_ZERO(&writefds);
-        int fd_max = -1;
-
-        if (!stdout_eof) {
-            FD_SET(out_read, &readfds);
-            fd_max = out_read;
-        }
-        if (stdin_open && bodyLeft > 0) {
-            FD_SET(in_write, &writefds);
-            if (in_write > fd_max)
-                fd_max = in_write;
-        }
-
-        if (fd_max < 0)
-            break;
-
-        int rc = select(fd_max + 1, &readfds, &writefds, NULL, NULL);
-        if (rc < 0) {
-            if (errno == EINTR)
-                continue;
-            if (stdin_open)
-                close(in_write);
-            close(out_read);
-            kill(pid, SIGKILL);
-            waitpid(pid, NULL, 0);
-            throw std::runtime_error("CGI: select failed");
-        }
-
-        if (FD_ISSET(out_read, &readfds)) {
-            for (;;) {
-                ssize_t n = read(out_read, buffer, sizeof(buffer));
-                if (n > 0)
-                    output.append(buffer, static_cast<std::size_t>(n));
-                else if (n == 0) {
-                    stdout_eof = true;
-                    break;
-                } else if (errno == EAGAIN || errno == EWOULDBLOCK)
-                    break;
-                else {
-                    if (stdin_open)
-                        close(in_write);
-                    close(out_read);
-                    kill(pid, SIGKILL);
-                    waitpid(pid, NULL, 0);
-                    throw std::runtime_error("CGI: read from stdout failed");
-                }
-            }
-        }
-
-        if (stdin_open && bodyLeft > 0 && FD_ISSET(in_write, &writefds)) {
-            for (;;) {
-                ssize_t w = write(in_write, bodyPtr, bodyLeft);
-                if (w > 0) {
-                    bodyPtr += static_cast<std::size_t>(w);
-                    bodyLeft -= static_cast<std::size_t>(w);
-                } else if (w < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
-                    break;
-                else {
-                    if (stdin_open)
-                        close(in_write);
-                    close(out_read);
-                    kill(pid, SIGKILL);
-                    waitpid(pid, NULL, 0);
-                    throw std::runtime_error("CGI: write to stdin failed");
-                }
-                if (bodyLeft == 0)
-                    break;
-            }
-        }
-
-        if (stdin_open && bodyLeft == 0) {
-            close(in_write);
-            stdin_open = false;
-        }
-
-        if (stdout_eof && stdin_open) {
-            close(in_write);
-            stdin_open = false;
-        }
-    }
-
-    close(out_read);
-
-    int status = 0;
-    waitpid(pid, &status, 0);
     for (int i = 0; envp[i] != NULL; ++i)
         delete[] envp[i];
     delete[] envp;
-    return output;
-}
 
-// bool CGI::isCGI(const std::string& path) {
-//     return path.find("/cgi-bin/") == 0;
-// }
+    CGIFd cgi;
+    cgi.pid    = pid;
+    cgi.in_fd  = FdIn[1];
+    cgi.out_fd = FdOut[0];
+    return cgi;
+}

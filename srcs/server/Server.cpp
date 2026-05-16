@@ -100,6 +100,32 @@ void Server::handleNewConnection(int listenFd, fd_set& fds, int& fdMax) {
     }
 }
 
+void Server::processCGIResponse(Client &client, const ConfigBlock &server, fd_set &fds) {
+    std::string strippedPath;
+    ConfigBlock tmp = HttpResponseBuilder::resolveConfig(client.requests.front().path, server, strippedPath);
+    HttpRequest adjusted = client.requests.front();
+    adjusted.path = strippedPath;
+    client.requests.erase(client.requests.begin());
+    CGI cgi(client.peer_addr, adjusted, tmp);
+    CGIFd getCGI = cgi.startCGI(tmp);
+    client.cgi_pid           = getCGI.pid;
+    client.cgi_in_fd         = getCGI.in_fd;
+    client.cgi_out_fd        = getCGI.out_fd;
+    client.cgi_body_write = adjusted.body;
+    client.cgi_body_offset   = 0;
+    client.cgi_output.clear();
+    client.state             = Client::CGI_RUNNING;
+    FD_SET(getCGI.out_fd, &fds);
+    if (getCGI.out_fd > _fd_max)
+        _fd_max = getCGI.out_fd;
+    if (adjusted.body.empty()) {
+        close(getCGI.in_fd);
+        client.cgi_in_fd = -1;
+    }
+    return;
+}
+
+
 void Server::handleClientRead(int clientFd, fd_set& fds) {
     std::map<int, Client>::iterator it = _clients.find(clientFd);
     if (it == _clients.end()) {
@@ -109,19 +135,20 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
     Client& client = it->second;
     char buf[4096];
 
-    ssize_t nbytes = 0;
-    while ((nbytes = recv(clientFd, buf, sizeof(buf), 0)) > 0) {
-        client.read_buffer.append(buf, static_cast<std::size_t>(nbytes));
+    ssize_t nread = recv(clientFd, buf, sizeof(buf), 0);
+    if (nread > 0) {
+        client.read_buffer.append(buf, static_cast<std::size_t>(nread));
         client.last_activity = std::time(NULL);
     }
-    if (nbytes == 0) {
+    else if (nread == 0) {
         removeClient(clientFd, fds);
         return;
     }
-    if (nbytes < 0 && (errno != EAGAIN && errno != EWOULDBLOCK)) {
+    else {
         removeClient(clientFd, fds);
         return;
     }
+
     HttpRequest request = HttpParser::parse(client.read_buffer);
     if (request.status == HTTP_INCOMPLETE_REQUEST) {
         return;
@@ -134,29 +161,23 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
     client.read_buffer.clear();
     if (!client.write_buffer.empty() || client.requests.empty())
         return;
+    
     ConfigBlock activeServer = _servers.front();
     std::map<int, std::size_t>::const_iterator listenIt = _fd_to_server.find(client.listen_fd);
     if (listenIt != _fd_to_server.end() && listenIt->second < _servers.size())
         activeServer = _servers[listenIt->second];
 
     HttpResponse response = HttpResponseBuilder::build(client.peer_addr, client.requests.front(), activeServer);
+    if (response.status == HTTP_CGI_PENDING) {
+        processCGIResponse(client, activeServer, fds);
+        return;
+    }
     client.requests.erase(client.requests.begin());
     client.write_buffer = response.serialize();
     client.write_offset = 0;
     client.should_close = true;
     client.state = Client::WRITING_RESPONSE;
 
-    while (_clients.find(clientFd) != _clients.end()) {
-        Client& c = _clients.find(clientFd)->second;
-        if (c.write_offset >= c.write_buffer.size())
-            break;
-        const std::size_t before = c.write_offset;
-        handleClientWrite(clientFd, fds);
-        if (_clients.find(clientFd) == _clients.end())
-            return;
-        if (_clients.find(clientFd)->second.write_offset == before)
-            break;
-    }
 }
 
 void Server::handleClientWrite(int clientFd, fd_set& fds) {
@@ -167,20 +188,17 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
     }
     Client& client = it->second;
     if (client.write_offset >= client.write_buffer.size()) {
-        client.state = Client::READING_HEADERS;
         return;
     }
-    const char* data = client.write_buffer.c_str() + client.write_offset;
+    const char* data = client.write_buffer.data() + client.write_offset;
     const std::size_t remaining = client.write_buffer.size() - client.write_offset;
-    const ssize_t sent = send(clientFd, data, remaining, 0);
-    if (sent <= 0) {
-        if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            return;
-        }
+    const ssize_t nsent = send(clientFd, data, remaining, 0);
+    if (nsent > 0)
+        client.write_offset += static_cast<std::size_t>(nsent);
+    else {
         removeClient(clientFd, fds);
         return;
     }
-    client.write_offset += static_cast<std::size_t>(sent);
     if (client.write_offset >= client.write_buffer.size()) {
         if (client.should_close) {
             removeClient(clientFd, fds);
@@ -205,6 +223,62 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
     }
 }
 
+
+void Server::handleCgiRead(int clientFd, fd_set& fds) {
+    Client& client = _clients[clientFd];
+    char buf[4096];
+    ssize_t n = read(client.cgi_out_fd, buf, sizeof(buf));
+
+    if (n > 0) {
+        client.cgi_output.append(buf, static_cast<std::size_t>(n));
+        return;
+    }
+    FD_CLR(client.cgi_out_fd, &fds);
+    close(client.cgi_out_fd);
+    client.cgi_out_fd = -1;
+
+    int status = 0;
+    waitpid(client.cgi_pid, &status, 0);
+    client.cgi_pid = -1;
+    if (n < 0) {
+        ConfigBlock activeServer = _servers.front();
+        std::map<int, std::size_t>::const_iterator listenIt = _fd_to_server.find(client.listen_fd);
+        if (listenIt != _fd_to_server.end() && listenIt->second < _servers.size())
+            activeServer = _servers[listenIt->second];
+        HttpResponse err = HttpResponseBuilder::makeError(HTTP_BAD_GATEWAY, activeServer);
+        client.write_buffer = err.serialize();
+    } else {
+        HttpResponse response = HttpResponseBuilder::parseCGIResponse(client.cgi_output);
+        client.write_buffer = response.serialize();
+    }
+
+    client.write_offset = 0;
+    client.should_close = true;
+    client.state        = Client::WRITING_RESPONSE;
+}
+
+void Server::handleCgiWrite(int clientFd, fd_set& fds) {
+    Client& client = _clients[clientFd];
+    const char* data = client.cgi_body_write.data() + client.cgi_body_offset;
+    std::size_t remaining = client.cgi_body_write.size() - client.cgi_body_offset;
+
+    ssize_t w = write(client.cgi_in_fd, data, remaining);
+    if (w > 0)
+        client.cgi_body_offset += static_cast<std::size_t>(w);
+    else {
+        FD_CLR(client.cgi_in_fd, &fds);
+        close(client.cgi_in_fd);
+        client.cgi_in_fd = -1;
+        return;
+    }
+
+    if (client.cgi_body_offset >= client.cgi_body_write.size()) {
+        FD_CLR(client.cgi_in_fd, &fds);
+        close(client.cgi_in_fd);
+        client.cgi_in_fd = -1; // signals EOF to child's stdin
+    }
+}
+
 void Server::run() {
     for (std::size_t i = 0; i < _servers.size(); ++i) {
         const std::vector<ListenAddr>& listens = _servers[i].listens;
@@ -216,11 +290,11 @@ void Server::run() {
     }
     fd_set fds, readfds, writefds;
     FD_ZERO(&fds);
-    int fd_max = -1;
+    _fd_max = -1;
     for (std::vector<int>::const_iterator it = _server_fds.begin(); it != _server_fds.end(); ++it) {
         FD_SET(*it, &fds);
-        if (*it > fd_max) {
-            fd_max = *it;
+        if (*it >_fd_max) {
+           _fd_max = *it;
         }
     }
     while (1) {
@@ -228,22 +302,51 @@ void Server::run() {
         FD_ZERO(&writefds);
         for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
             const Client& client = it->second;
-            if (client.write_offset < client.write_buffer.size()) {
-                FD_SET(it->first, &writefds);
+            if (client.state == Client::CGI_RUNNING) {
+                if (client.cgi_out_fd != -1) {
+                    FD_SET(client.cgi_out_fd, &readfds);
+                    if (client.cgi_out_fd > _fd_max) 
+                        _fd_max = client.cgi_out_fd;
+                }
+                if (client.cgi_in_fd != -1 && client.cgi_body_offset < client.cgi_body_write.size()) {
+                    FD_SET(client.cgi_in_fd, &writefds);
+                    if (client.cgi_in_fd > _fd_max)
+                        _fd_max = client.cgi_in_fd;
+                }
             }
+            if (client.write_offset < client.write_buffer.size())
+                FD_SET(it->first, &writefds);
         }
 
-        if (select(fd_max + 1, &readfds, &writefds, NULL, NULL) == -1) {
+        std::map<int, int> cgi_out_to_client;
+        std::map<int, int> cgi_in_to_client;
+        for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+            if (it->second.cgi_out_fd != -1)
+                cgi_out_to_client[it->second.cgi_out_fd] = it->first;
+            if (it->second.cgi_in_fd != -1)
+                cgi_in_to_client[it->second.cgi_in_fd] = it->first;
+        }
+        if (select(_fd_max + 1, &readfds, &writefds, NULL, NULL) == -1) {
             if (errno == EINTR) {
                 continue;
             }
             throw std::runtime_error("Select error");
         }
-        for (int fdCurrent = 0; fdCurrent < fd_max + 1; fdCurrent++) {
+        for (int fdCurrent = 0; fdCurrent < _fd_max + 1; fdCurrent++) {
             if (isServerFd(fdCurrent)) {
                 if (FD_ISSET(fdCurrent, &readfds)) {
-                    handleNewConnection(fdCurrent, fds, fd_max);
+                    handleNewConnection(fdCurrent, fds, _fd_max);
                 }
+                continue;
+            }
+            if (cgi_out_to_client.count(fdCurrent)) {
+                if (FD_ISSET(fdCurrent, &readfds))
+                    handleCgiRead(cgi_out_to_client[fdCurrent], fds);
+                continue;
+            }
+            if (cgi_in_to_client.count(fdCurrent)) {
+                if (FD_ISSET(fdCurrent, &writefds))
+                    handleCgiWrite(cgi_in_to_client[fdCurrent], fds);
                 continue;
             }
             if (FD_ISSET(fdCurrent, &readfds)) {
@@ -256,6 +359,3 @@ void Server::run() {
     }
 
 }
-//for the moment, multiple server on the same port is not supported
-// in Nginx, it is supported by using a server block with the same port
-// but different server_name -> check later
