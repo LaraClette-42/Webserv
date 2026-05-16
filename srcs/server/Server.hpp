@@ -17,7 +17,11 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include "../config/config.hpp"
+#include "../http/HttpRequest.hpp"
+#include "../http/HttpResponse.hpp"
+#include "../http/HttpStatus.hpp"
+#include "../utils/utils.hpp"
+#include "../cgi/CGI.hpp"
 
 class Server {
 private:
@@ -33,10 +37,9 @@ private:
     void handleClientRead(int clientFd, fd_set& fds);
     void handleClientWrite(int clientFd, fd_set& fds);
     void removeClient(int clientFd, fd_set& fds);
-    void processCGIResponse(const HttpResponse &response,
-        Client &client, const ConfigBlock &server, fd_set &fds);
-    void Server::handleCgiWrite(int clientFd, fd_set& fds);
-    void Server::handleCgiRead(int clientFd, fd_set& fds, int& fd_max);
+    void processCGIResponse(Client &client, const ConfigBlock &server, fd_set &fds);
+    void handleCgiWrite(int clientFd, fd_set& fds);
+    void handleCgiRead(int clientFd, fd_set& fds);
 public:
     Server(const std::vector<ConfigBlock>& config);
 

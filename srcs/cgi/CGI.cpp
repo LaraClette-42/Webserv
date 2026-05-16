@@ -89,7 +89,7 @@ CGIFd CGI::startCGI(const ConfigBlock &config) {
 
     CGIFd cgi;
     cgi.pid    = pid;
-    cgi.in_write  = FdIn[1];
-    cgi.out_read = FdOut[0];
+    cgi.in_fd  = FdIn[1];
+    cgi.out_fd = FdOut[0];
     return cgi;
 }

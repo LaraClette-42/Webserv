@@ -1,6 +1,4 @@
 #include "Server.hpp"
-#include "Client.hpp"
-#include "CGI.hpp"
 #include "../http/HttpRequest.hpp"
 #include "../http/HttpResponse.hpp"
 #include "../http/HttpStatus.hpp"
@@ -102,15 +100,14 @@ void Server::handleNewConnection(int listenFd, fd_set& fds, int& fdMax) {
     }
 }
 
-void Server::processCGIResponse(const HttpResponse &response,
-    Client &client, const ConfigBlock &server, fd_set &fds) {
+void Server::processCGIResponse(Client &client, const ConfigBlock &server, fd_set &fds) {
     std::string strippedPath;
     ConfigBlock tmp = HttpResponseBuilder::resolveConfig(client.requests.front().path, server, strippedPath);
     HttpRequest adjusted = client.requests.front();
     adjusted.path = strippedPath;
     client.requests.erase(client.requests.begin());
-    CGI cgi(client.peer_addr, adjusted, server);
-    CGIFd getCGI = cgi.startCGI(server);
+    CGI cgi(client.peer_addr, adjusted, tmp);
+    CGIFd getCGI = cgi.startCGI(tmp);
     client.cgi_pid           = getCGI.pid;
     client.cgi_in_fd         = getCGI.in_fd;
     client.cgi_out_fd        = getCGI.out_fd;
@@ -172,7 +169,7 @@ void Server::handleClientRead(int clientFd, fd_set& fds) {
 
     HttpResponse response = HttpResponseBuilder::build(client.peer_addr, client.requests.front(), activeServer);
     if (response.status == HTTP_CGI_PENDING) {
-        processCGIResponse(response, client, activeServer, fds);
+        processCGIResponse(client, activeServer, fds);
         return;
     }
     client.requests.erase(client.requests.begin());
@@ -227,7 +224,7 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
 }
 
 
-void Server::handleCgiRead(int clientFd, fd_set& fds, int& fd_max) {
+void Server::handleCgiRead(int clientFd, fd_set& fds) {
     Client& client = _clients[clientFd];
     char buf[4096];
     ssize_t n = read(client.cgi_out_fd, buf, sizeof(buf));
@@ -236,24 +233,24 @@ void Server::handleCgiRead(int clientFd, fd_set& fds, int& fd_max) {
         client.cgi_output.append(buf, static_cast<std::size_t>(n));
         return;
     }
-
-    // n == 0: EOF — CGI finished writing
-    // n < 0:  real error (select pre-qualified, so not EAGAIN)
     FD_CLR(client.cgi_out_fd, &fds);
     close(client.cgi_out_fd);
     client.cgi_out_fd = -1;
 
-    waitpid(client.cgi_pid, NULL, 0);
+    int status = 0;
+    waitpid(client.cgi_pid, &status, 0);
     client.cgi_pid = -1;
-    /*
     if (n < 0) {
-        // CGI error — send 502
-        HttpResponse err = makeError(HTTP_BAD_GATEWAY, resolveConfig(...));
+        ConfigBlock activeServer = _servers.front();
+        std::map<int, std::size_t>::const_iterator listenIt = _fd_to_server.find(client.listen_fd);
+        if (listenIt != _fd_to_server.end() && listenIt->second < _servers.size())
+            activeServer = _servers[listenIt->second];
+        HttpResponse err = HttpResponseBuilder::makeError(HTTP_BAD_GATEWAY, activeServer);
         client.write_buffer = err.serialize();
     } else {
-        HttpResponse response = parseCGIResponse(client.cgi_output);
+        HttpResponse response = HttpResponseBuilder::parseCGIResponse(client.cgi_output);
         client.write_buffer = response.serialize();
-    }*/
+    }
 
     client.write_offset = 0;
     client.should_close = true;
@@ -269,7 +266,6 @@ void Server::handleCgiWrite(int clientFd, fd_set& fds) {
     if (w > 0)
         client.cgi_body_offset += static_cast<std::size_t>(w);
     else {
-        // Error writing to CGI stdin — close and let CGI finish
         FD_CLR(client.cgi_in_fd, &fds);
         close(client.cgi_in_fd);
         client.cgi_in_fd = -1;
@@ -306,11 +302,30 @@ void Server::run() {
         FD_ZERO(&writefds);
         for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
             const Client& client = it->second;
-            if (client.write_offset < client.write_buffer.size()) {
-                FD_SET(it->first, &writefds);
+            if (client.state == Client::CGI_RUNNING) {
+                if (client.cgi_out_fd != -1) {
+                    FD_SET(client.cgi_out_fd, &readfds);
+                    if (client.cgi_out_fd > _fd_max) 
+                        _fd_max = client.cgi_out_fd;
+                }
+                if (client.cgi_in_fd != -1 && client.cgi_body_offset < client.cgi_body_write.size()) {
+                    FD_SET(client.cgi_in_fd, &writefds);
+                    if (client.cgi_in_fd > _fd_max)
+                        _fd_max = client.cgi_in_fd;
+                }
             }
+            if (client.write_offset < client.write_buffer.size())
+                FD_SET(it->first, &writefds);
         }
 
+        std::map<int, int> cgi_out_to_client;
+        std::map<int, int> cgi_in_to_client;
+        for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+            if (it->second.cgi_out_fd != -1)
+                cgi_out_to_client[it->second.cgi_out_fd] = it->first;
+            if (it->second.cgi_in_fd != -1)
+                cgi_in_to_client[it->second.cgi_in_fd] = it->first;
+        }
         if (select(_fd_max + 1, &readfds, &writefds, NULL, NULL) == -1) {
             if (errno == EINTR) {
                 continue;
@@ -324,6 +339,16 @@ void Server::run() {
                 }
                 continue;
             }
+            if (cgi_out_to_client.count(fdCurrent)) {
+                if (FD_ISSET(fdCurrent, &readfds))
+                    handleCgiRead(cgi_out_to_client[fdCurrent], fds);
+                continue;
+            }
+            if (cgi_in_to_client.count(fdCurrent)) {
+                if (FD_ISSET(fdCurrent, &writefds))
+                    handleCgiWrite(cgi_in_to_client[fdCurrent], fds);
+                continue;
+            }
             if (FD_ISSET(fdCurrent, &readfds)) {
                 handleClientRead(fdCurrent, fds);
             }
@@ -334,6 +359,3 @@ void Server::run() {
     }
 
 }
-//for the moment, multiple server on the same port is not supported
-// in Nginx, it is supported by using a server block with the same port
-// but different server_name -> check later

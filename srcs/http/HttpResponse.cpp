@@ -46,7 +46,7 @@ static std::string readFile(const std::string &path, int &status) {
     return oss.str();
 }
 
-static HttpResponse makeError(int status, const ConfigBlock &config) {
+HttpResponse HttpResponseBuilder::makeError(int status, const ConfigBlock &config) {
     std::map<int, std::string>::const_iterator it = config.error_pages.find(status);
     if (it != config.error_pages.end()) {
         int fileStatus = HTTP_OK;
@@ -71,7 +71,7 @@ static HttpResponse makeError(int status, const ConfigBlock &config) {
     return response;
 }
 
-static HttpResponse parseCGIResponse(const std::string &raw) {
+HttpResponse HttpResponseBuilder::parseCGIResponse(const std::string &raw) {
     HttpResponse response;
     response.status = HTTP_OK;
 
@@ -105,12 +105,16 @@ static HttpResponse parseCGIResponse(const std::string &raw) {
     return response;
 }
 
-static HttpResponse makeRedirect(const std::string &url) {
+static HttpResponse localMakeRedirect(const std::string &url) {
     HttpResponse response;
     response.status = HTTP_MOVED_PERMANENTLY;
     response.headers["Location"] = url;
     response.headers["Content-Length"] = "0";
     return response;
+}
+
+HttpResponse HttpResponseBuilder::makeRedirect(const std::string &url) {
+    return localMakeRedirect(url);
 }
 
 static std::string buildAutoindex(const std::string &urlPath, const std::string &dirPath) {
@@ -208,7 +212,7 @@ static HttpResponse handleGet(const HttpRequest &request, const ConfigBlock &con
             std::string redirectUrl = request.path + "/";
             if (!request.query.empty())
                 redirectUrl += "?" + request.query;
-            return makeRedirect(redirectUrl);
+            return HttpResponseBuilder::makeRedirect(redirectUrl);
         }
         bool indexFound = false;
         for (size_t i = 0; i < config.index.size(); ++i) {
@@ -223,14 +227,14 @@ static HttpResponse handleGet(const HttpRequest &request, const ConfigBlock &con
             if (config.autoindex) {
                 std::string body = buildAutoindex(request.path, filePath);
                 if (body.empty())
-                    return makeError(HTTP_FORBIDDEN, config);
+                    return HttpResponseBuilder::makeError(HTTP_FORBIDDEN, config);
                 response.status = HTTP_OK;
                 response.body = body;
                 response.headers["Content-Type"] = "text/html";
                 response.headers["Content-Length"] = intToString(body.size());
                 return response;
             }
-            return makeError(HTTP_NOT_FOUND, config);
+            return HttpResponseBuilder::makeError(HTTP_NOT_FOUND, config);
         }
     }
 
@@ -243,19 +247,19 @@ static HttpResponse handleGet(const HttpRequest &request, const ConfigBlock &con
         response.headers["Content-Length"] = intToString(response.body.size());
         return response;
     }
-    return makeError(status, config);
+    return HttpResponseBuilder::makeError(status, config);
 }
 
 static HttpResponse handlePost(const HttpRequest &request, const ConfigBlock &config) {
     if (config.upload_store.empty())
-        return makeError(HTTP_FORBIDDEN, config);
+        return HttpResponseBuilder::makeError(HTTP_FORBIDDEN, config);
 
     std::string filename = request.path;
     size_t slash = filename.rfind('/');
     if (slash != std::string::npos)
         filename = filename.substr(slash + 1);
     if (filename.empty())
-        return makeError(HTTP_BAD_REQUEST, config);
+        return HttpResponseBuilder::makeError(HTTP_BAD_REQUEST, config);
 
     std::string store = config.upload_store;
     if (store[store.size() - 1] != '/')
@@ -263,11 +267,11 @@ static HttpResponse handlePost(const HttpRequest &request, const ConfigBlock &co
 
     std::ofstream file((store + filename).c_str(), std::ios::binary);
     if (!file.is_open())
-        return makeError(HTTP_FORBIDDEN, config);
+        return HttpResponseBuilder::makeError(HTTP_FORBIDDEN, config);
 
     file.write(request.body.c_str(), static_cast<std::streamsize>(request.body.size()));
     if (!file)
-        return makeError(HTTP_INTERNAL_SERVER_ERROR, config);
+        return HttpResponseBuilder::makeError(HTTP_INTERNAL_SERVER_ERROR, config);
 
     HttpResponse response;
     response.status = HTTP_CREATED;
@@ -280,11 +284,11 @@ static HttpResponse handleDelete(const HttpRequest &request, const ConfigBlock &
 
     struct stat info;
     if (stat(filePath.c_str(), &info) != 0)
-        return makeError(HTTP_NOT_FOUND, config);
+        return HttpResponseBuilder::makeError(HTTP_NOT_FOUND, config);
     if (S_ISDIR(info.st_mode))
-        return makeError(HTTP_FORBIDDEN, config);
+        return HttpResponseBuilder::makeError(HTTP_FORBIDDEN, config);
     if (remove(filePath.c_str()) != 0)
-        return makeError(HTTP_FORBIDDEN, config);
+        return HttpResponseBuilder::makeError(HTTP_FORBIDDEN, config);
 
     HttpResponse response;
     response.status = HTTP_NO_CONTENT;
@@ -344,10 +348,11 @@ std::string HttpResponseBuilder::statusMessage(int status) {
 }
 
 HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config) {
+    (void)clientAddr;
     static std::map<std::string, MethodHandler> methods = makeMethodMap();
 
     if (request.status != HTTP_OK)
-        return makeError(request.status, config);
+        return HttpResponseBuilder::makeError(request.status, config);
 
     std::string strippedPath;
     ConfigBlock server = resolveConfig(request.path, config, strippedPath);
@@ -358,20 +363,20 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
     adjusted.path         = strippedPath;
 
     if (!server.redirect.empty())
-        return makeRedirect(server.redirect);
+        return HttpResponseBuilder::makeRedirect(server.redirect);
 
     if (server.client_max_body_size > 0 &&
         static_cast<long>(request.body.size()) > server.client_max_body_size)
-        return makeError(HTTP_CONTENT_TOO_LARGE, server);
+        return HttpResponseBuilder::makeError(HTTP_CONTENT_TOO_LARGE, server);
 
     size_t dot = adjusted.path.find_last_of('.');
     if (dot != std::string::npos && server.cgi_pass.count(adjusted.path.substr(dot))) {
         if (!server.allow_methods.empty() &&
             server.allow_methods.find(adjusted.method) == server.allow_methods.end())
-            return makeError(HTTP_METHOD_NOT_ALLOWED, server);
+            return HttpResponseBuilder::makeError(HTTP_METHOD_NOT_ALLOWED, server);
         struct stat scriptStat;
         if (stat((server.root + adjusted.path).c_str(), &scriptStat) != 0)
-            return makeError(HTTP_NOT_FOUND, server);
+            return HttpResponseBuilder::makeError(HTTP_NOT_FOUND, server);
         HttpResponse cgiResponse;
         cgiResponse.status = HTTP_CGI_PENDING;
         return cgiResponse;
@@ -379,11 +384,11 @@ HttpResponse HttpResponseBuilder::build(const sockaddr_in &clientAddr, const Htt
 
     if (!server.allow_methods.empty() &&
         server.allow_methods.find(adjusted.method) == server.allow_methods.end())
-        return makeError(HTTP_METHOD_NOT_ALLOWED, server);
+        return HttpResponseBuilder::makeError(HTTP_METHOD_NOT_ALLOWED, server);
 
     std::map<std::string, MethodHandler>::iterator it = methods.find(adjusted.method);
     if (it == methods.end())
-        return makeError(HTTP_METHOD_NOT_ALLOWED, server);
+        return HttpResponseBuilder::makeError(HTTP_METHOD_NOT_ALLOWED, server);
 
     return it->second(adjusted, server);
 }

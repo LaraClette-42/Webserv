@@ -22,6 +22,9 @@ public:
     static std::string  statusMessage(int status);
     static ConfigBlock resolveConfig(const std::string &path, const ConfigBlock &server,
                                  std::string &strippedPath);
+    static HttpResponse makeError(int status, const ConfigBlock &config);
+    static HttpResponse parseCGIResponse(const std::string &raw);
+    static HttpResponse makeRedirect(const std::string &url);
 };
 
 #endif
