@@ -35,6 +35,7 @@ struct Client {
     pid_t cgi_pid;
     int cgi_in_fd;
     int cgi_out_fd;
+    std::time_t cgi_start_time;
     std::string cgi_body_write;
     std::string cgi_output;
     std::size_t cgi_body_offset;

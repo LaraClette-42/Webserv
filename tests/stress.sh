@@ -33,8 +33,8 @@ done
 END=$(date +%s)
 ELAPSED=$((END - START))
 
-OK=$(grep -c "^ok$" "$TMPDIR/results" 2>/dev/null || echo 0)
-FAIL=$(grep -c "^fail$" "$TMPDIR/results" 2>/dev/null || echo 0)
+OK=$(grep "^ok$" "$TMPDIR/results" 2>/dev/null | wc -l)
+FAIL=$(grep "^fail$" "$TMPDIR/results" 2>/dev/null | wc -l)
 AVAIL_X10=$(( OK * 1000 / TOTAL ))
 AVAIL_INT=$(( AVAIL_X10 / 10 ))
 AVAIL_DEC=$(( AVAIL_X10 % 10 ))

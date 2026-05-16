@@ -345,6 +345,10 @@ std::string HttpResponseBuilder::statusMessage(int status) {
         return "Content Too Large";
     if (status == HTTP_INTERNAL_SERVER_ERROR)
         return "Internal Server Error";
+    if (status == HTTP_BAD_GATEWAY)
+        return "Bad Gateway";
+    if (status == HTTP_GATEWAY_TIMEOUT)
+        return "Gateway Timeout";
     return "Unknown";
 }
 

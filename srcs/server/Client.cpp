@@ -12,6 +12,7 @@ Client::Client()
       cgi_pid(-1),
       cgi_in_fd(-1),
       cgi_out_fd(-1),
+      cgi_start_time(0),
       cgi_body_offset(0) {
 }
 
@@ -28,5 +29,6 @@ Client::Client(int fdValue, int listenFd, const sockaddr_in& peer)
       cgi_pid(-1),
       cgi_in_fd(-1),
       cgi_out_fd(-1),
+      cgi_start_time(0),
       cgi_body_offset(0) {
 }

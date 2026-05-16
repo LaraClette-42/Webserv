@@ -22,6 +22,20 @@ bool Server::isServerFd(int fd) const {
 }
 
 void Server::removeClient(int clientFd, fd_set& fds) {
+    Client& client = _clients[clientFd];
+    // Si le client se déconnecte pendant un CGI (ex. il coupe la connexion avant
+    // d'avoir reçu la réponse), le processus CGI et ses pipes doivent être nettoyés
+    // ici. Sans ça : fuite de file descriptors + processus zombie, ce qui peut
+    // épuiser les ressources sous charge (siege) et violer "must not crash".
+    if (client.cgi_pid != -1) {
+        kill(client.cgi_pid, SIGKILL);
+        waitpid(client.cgi_pid, NULL, 0);
+    }
+    // FD_CLR nécessaire : checkCGITimeouts peut avoir ajouté ces fds au set.
+    // Si on les laisse ouverts et que le noyau recycle leur numéro, un futur fd
+    // légitime se retrouverait dans le mauvais set.
+    if (client.cgi_out_fd != -1) { FD_CLR(client.cgi_out_fd, &fds); close(client.cgi_out_fd); }
+    if (client.cgi_in_fd  != -1) { FD_CLR(client.cgi_in_fd,  &fds); close(client.cgi_in_fd);  }
     close(clientFd);
     FD_CLR(clientFd, &fds);
     _clients.erase(clientFd);
@@ -107,10 +121,24 @@ void Server::processCGIResponse(Client &client, const ConfigBlock &server, fd_se
     adjusted.path = strippedPath;
     client.requests.erase(client.requests.begin());
     CGI cgi(client.peer_addr, adjusted, tmp);
-    CGIFd getCGI = cgi.startCGI(tmp);
+    CGIFd getCGI;
+    // Sujet : "must not crash" — pipe() ou fork() peuvent échouer sous charge.
+    // Sans ce catch, l'exception remonte jusqu'à main() et arrête le serveur.
+    // On renvoie 500 à ce client et on continue à servir les autres.
+    try {
+        getCGI = cgi.startCGI(tmp);
+    } catch (const std::exception &e) {
+        HttpResponse err = HttpResponseBuilder::makeError(HTTP_INTERNAL_SERVER_ERROR, server);
+        client.write_buffer = err.serialize();
+        client.write_offset = 0;
+        client.should_close = true;
+        client.state = Client::WRITING_RESPONSE;
+        return;
+    }
     client.cgi_pid           = getCGI.pid;
     client.cgi_in_fd         = getCGI.in_fd;
     client.cgi_out_fd        = getCGI.out_fd;
+    client.cgi_start_time    = std::time(NULL);
     client.cgi_body_write = adjusted.body;
     client.cgi_body_offset   = 0;
     client.cgi_output.clear();
@@ -226,6 +254,9 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
 
 void Server::handleCgiRead(int clientFd, fd_set& fds) {
     Client& client = _clients[clientFd];
+    // Garde : checkCGITimeouts peut fermer cgi_out_fd dans la même itération de boucle.
+    if (client.cgi_out_fd == -1)
+        return;
     char buf[4096];
     ssize_t n = read(client.cgi_out_fd, buf, sizeof(buf));
 
@@ -259,6 +290,10 @@ void Server::handleCgiRead(int clientFd, fd_set& fds) {
 
 void Server::handleCgiWrite(int clientFd, fd_set& fds) {
     Client& client = _clients[clientFd];
+    // Garde symétrique à handleCgiRead : checkCGITimeouts peut fermer cgi_in_fd
+    // dans la même itération de boucle select, avant qu'on arrive ici.
+    if (client.cgi_in_fd == -1)
+        return;
     const char* data = client.cgi_body_write.data() + client.cgi_body_offset;
     std::size_t remaining = client.cgi_body_write.size() - client.cgi_body_offset;
 
@@ -276,6 +311,35 @@ void Server::handleCgiWrite(int clientFd, fd_set& fds) {
         FD_CLR(client.cgi_in_fd, &fds);
         close(client.cgi_in_fd);
         client.cgi_in_fd = -1; // signals EOF to child's stdin
+    }
+}
+
+// Sujet : "A request to your server should never hang indefinitely."
+// Un CGI en boucle infinie serait bloqué sans limite : on le kill après CGI_TIMEOUT secondes
+// et on répond 504 Gateway Timeout au client.
+void Server::checkCGITimeouts(fd_set& fds) {
+    const int CGI_TIMEOUT = 10;
+    std::time_t now = std::time(NULL);
+    for (std::map<int, Client>::iterator it = _clients.begin(); it != _clients.end(); ++it) {
+        Client& client = it->second;
+        if (client.state != Client::CGI_RUNNING)
+            continue;
+        if (now - client.cgi_start_time < CGI_TIMEOUT)
+            continue;
+        kill(client.cgi_pid, SIGKILL);
+        waitpid(client.cgi_pid, NULL, 0);
+        client.cgi_pid = -1;
+        if (client.cgi_out_fd != -1) { FD_CLR(client.cgi_out_fd, &fds); close(client.cgi_out_fd); client.cgi_out_fd = -1; }
+        if (client.cgi_in_fd  != -1) { FD_CLR(client.cgi_in_fd,  &fds); close(client.cgi_in_fd);  client.cgi_in_fd  = -1; }
+        ConfigBlock activeServer = _servers.front();
+        std::map<int, std::size_t>::const_iterator li = _fd_to_server.find(client.listen_fd);
+        if (li != _fd_to_server.end() && li->second < _servers.size())
+            activeServer = _servers[li->second];
+        HttpResponse err = HttpResponseBuilder::makeError(HTTP_GATEWAY_TIMEOUT, activeServer);
+        client.write_buffer = err.serialize();
+        client.write_offset = 0;
+        client.should_close = true;
+        client.state = Client::WRITING_RESPONSE;
     }
 }
 
@@ -326,12 +390,17 @@ void Server::run() {
             if (it->second.cgi_in_fd != -1)
                 cgi_in_to_client[it->second.cgi_in_fd] = it->first;
         }
-        if (select(_fd_max + 1, &readfds, &writefds, NULL, NULL) == -1) {
+        // Timeout de 1s sur select pour permettre à checkCGITimeouts de s'exécuter régulièrement.
+        struct timeval tv;
+        tv.tv_sec  = 1;
+        tv.tv_usec = 0;
+        if (select(_fd_max + 1, &readfds, &writefds, NULL, &tv) == -1) {
             if (errno == EINTR) {
                 continue;
             }
             throw std::runtime_error("Select error");
         }
+        checkCGITimeouts(fds);
         for (int fdCurrent = 0; fdCurrent < _fd_max + 1; fdCurrent++) {
             if (isServerFd(fdCurrent)) {
                 if (FD_ISSET(fdCurrent, &readfds)) {
@@ -352,7 +421,8 @@ void Server::run() {
             if (FD_ISSET(fdCurrent, &readfds)) {
                 handleClientRead(fdCurrent, fds);
             }
-            if (FD_ISSET(fdCurrent, &writefds)) {
+            // Vérifie que le client existe encore : handleClientRead peut l'avoir supprimé.
+            if (FD_ISSET(fdCurrent, &writefds) && _clients.count(fdCurrent)) {
                 handleClientWrite(fdCurrent, fds);
             }
         }

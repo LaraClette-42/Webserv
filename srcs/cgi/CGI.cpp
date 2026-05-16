@@ -64,26 +64,42 @@ CGIFd CGI::startCGI(const ConfigBlock &config) {
         throw std::runtime_error("cgi_pass not configured for extension " + extension);
     
     const std::string interpreter = it->second;
-    char *argv[] = {
-        const_cast<char*>(interpreter.c_str()),
-        const_cast<char*>(_scriptPath.c_str()),
-        NULL
-    };
     char **envp = getEnvStr();
 
     int FdIn[2], FdOut[2];
-    if (pipe(FdIn) < 0 || pipe(FdOut) < 0)
+    // envp libéré avant chaque throw : une exception ici court-circuite le delete[] normal en bas.
+    if (pipe(FdIn) < 0 || pipe(FdOut) < 0) {
+        for (int i = 0; envp[i]; ++i) delete[] envp[i];
+        delete[] envp;
         throw std::runtime_error("pipe failed");
+    }
 
     pid_t pid = fork();
-    if (pid < 0)
+    if (pid < 0) {
+        for (int i = 0; envp[i]; ++i) delete[] envp[i];
+        delete[] envp;
         throw std::runtime_error("fork failed");
+    }
 
     if (pid == 0) {
         dup2(FdIn[0], STDIN_FILENO);
         dup2(FdOut[1], STDOUT_FILENO);
         close(FdIn[1]); close(FdOut[0]);
-        execve(interpreter.c_str(), argv, envp);
+        // Sujet : "The CGI should be run in the correct directory for relative path file access."
+        // On change le répertoire courant vers celui du script, et on passe uniquement le
+        // nom de fichier à execve pour éviter un double-chemin après le chdir.
+        std::size_t slash = _scriptPath.find_last_of('/');
+        std::string scriptName = _scriptPath;
+        if (slash != std::string::npos) {
+            chdir(_scriptPath.substr(0, slash).c_str());
+            scriptName = _scriptPath.substr(slash + 1);
+        }
+        char *newArgv[] = {
+            const_cast<char*>(interpreter.c_str()),
+            const_cast<char*>(scriptName.c_str()),
+            NULL
+        };
+        execve(interpreter.c_str(), newArgv, envp);
         _exit(EXIT_FAILURE);
     }
     close(FdIn[0]);

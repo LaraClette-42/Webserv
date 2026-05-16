@@ -6,13 +6,13 @@
 
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <config file>" << std::endl;
-        return 1;
-    }
+    // Sujet : "provided as argument on the command line, or available in a default path"
+    const char *configPath = "conf/default.conf";
+    if (argc >= 2)
+        configPath = argv[1];
     try {
         ConfigFile config;
-        config.parse(argv[1]);
+        config.parse(configPath);
         const std::vector<ConfigBlock> allservers = config.getServers(); 
         Server server(allservers);
         server.run();

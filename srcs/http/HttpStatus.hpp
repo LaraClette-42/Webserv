@@ -14,6 +14,7 @@
 #define HTTP_CONTENT_TOO_LARGE      413
 #define HTTP_INTERNAL_SERVER_ERROR  500
 #define HTTP_BAD_GATEWAY            502
+#define HTTP_GATEWAY_TIMEOUT        504  // réponse au timeout CGI
 #define HTTP_CGI_PENDING            600
 
 
