@@ -314,6 +314,25 @@ void Server::handleCgiWrite(int clientFd, fd_set& fds) {
     }
 }
 
+// Eval sheet : "Check if there is no hanging connection."
+// Un client qui ouvre une connexion TCP sans jamais envoyer de requête complète
+// resterait en READING_HEADERS indéfiniment. On le déconnecte après 30s d'inactivité.
+// Sans ce timeout, un simple `nc localhost 8080` suffit à laisser une connexion zombie.
+void Server::checkIdleTimeouts(fd_set& fds) {
+    const int IDLE_TIMEOUT = 30;
+    std::time_t now = std::time(NULL);
+    std::vector<int> toRemove;
+    for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
+        const Client& client = it->second;
+        if (client.state == Client::CGI_RUNNING)
+            continue; // géré par checkCGITimeouts
+        if (now - client.last_activity > IDLE_TIMEOUT)
+            toRemove.push_back(it->first);
+    }
+    for (std::size_t i = 0; i < toRemove.size(); ++i)
+        removeClient(toRemove[i], fds);
+}
+
 // Sujet : "A request to your server should never hang indefinitely."
 // Un CGI en boucle infinie serait bloqué sans limite : on le kill après CGI_TIMEOUT secondes
 // et on répond 504 Gateway Timeout au client.
@@ -401,6 +420,7 @@ void Server::run() {
             throw std::runtime_error("Select error");
         }
         checkCGITimeouts(fds);
+        checkIdleTimeouts(fds);
         for (int fdCurrent = 0; fdCurrent < _fd_max + 1; fdCurrent++) {
             if (isServerFd(fdCurrent)) {
                 if (FD_ISSET(fdCurrent, &readfds)) {

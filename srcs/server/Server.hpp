@@ -41,6 +41,7 @@ private:
     void handleCgiWrite(int clientFd, fd_set& fds);
     void handleCgiRead(int clientFd, fd_set& fds);
     void checkCGITimeouts(fd_set& fds);
+    void checkIdleTimeouts(fd_set& fds);
 public:
     Server(const std::vector<ConfigBlock>& config);
 
