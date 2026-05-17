@@ -67,7 +67,6 @@ CGIFd CGI::startCGI(const ConfigBlock &config) {
     char **envp = getEnvStr();
 
     int FdIn[2], FdOut[2];
-    // envp libéré avant chaque throw : une exception ici court-circuite le delete[] normal en bas.
     if (pipe(FdIn) < 0 || pipe(FdOut) < 0) {
         for (int i = 0; envp[i]; ++i) delete[] envp[i];
         delete[] envp;
@@ -85,9 +84,6 @@ CGIFd CGI::startCGI(const ConfigBlock &config) {
         dup2(FdIn[0], STDIN_FILENO);
         dup2(FdOut[1], STDOUT_FILENO);
         close(FdIn[1]); close(FdOut[0]);
-        // Sujet : "The CGI should be run in the correct directory for relative path file access."
-        // On change le répertoire courant vers celui du script, et on passe uniquement le
-        // nom de fichier à execve pour éviter un double-chemin après le chdir.
         std::size_t slash = _scriptPath.find_last_of('/');
         std::string scriptName = _scriptPath;
         if (slash != std::string::npos) {

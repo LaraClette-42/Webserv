@@ -23,17 +23,10 @@ bool Server::isServerFd(int fd) const {
 
 void Server::removeClient(int clientFd, fd_set& fds) {
     Client& client = _clients[clientFd];
-    // Si le client se déconnecte pendant un CGI (ex. il coupe la connexion avant
-    // d'avoir reçu la réponse), le processus CGI et ses pipes doivent être nettoyés
-    // ici. Sans ça : fuite de file descriptors + processus zombie, ce qui peut
-    // épuiser les ressources sous charge (siege) et violer "must not crash".
     if (client.cgi_pid != -1) {
         kill(client.cgi_pid, SIGKILL);
         waitpid(client.cgi_pid, NULL, 0);
     }
-    // FD_CLR nécessaire : checkCGITimeouts peut avoir ajouté ces fds au set.
-    // Si on les laisse ouverts et que le noyau recycle leur numéro, un futur fd
-    // légitime se retrouverait dans le mauvais set.
     if (client.cgi_out_fd != -1) { FD_CLR(client.cgi_out_fd, &fds); close(client.cgi_out_fd); }
     if (client.cgi_in_fd  != -1) { FD_CLR(client.cgi_in_fd,  &fds); close(client.cgi_in_fd);  }
     close(clientFd);
@@ -122,9 +115,6 @@ void Server::processCGIResponse(Client &client, const ConfigBlock &server, fd_se
     client.requests.erase(client.requests.begin());
     CGI cgi(client.peer_addr, adjusted, tmp);
     CGIFd getCGI;
-    // Sujet : "must not crash" — pipe() ou fork() peuvent échouer sous charge.
-    // Sans ce catch, l'exception remonte jusqu'à main() et arrête le serveur.
-    // On renvoie 500 à ce client et on continue à servir les autres.
     try {
         getCGI = cgi.startCGI(tmp);
     } catch (const std::exception &e) {
@@ -254,7 +244,6 @@ void Server::handleClientWrite(int clientFd, fd_set& fds) {
 
 void Server::handleCgiRead(int clientFd, fd_set& fds) {
     Client& client = _clients[clientFd];
-    // Garde : checkCGITimeouts peut fermer cgi_out_fd dans la même itération de boucle.
     if (client.cgi_out_fd == -1)
         return;
     char buf[4096];
@@ -290,8 +279,6 @@ void Server::handleCgiRead(int clientFd, fd_set& fds) {
 
 void Server::handleCgiWrite(int clientFd, fd_set& fds) {
     Client& client = _clients[clientFd];
-    // Garde symétrique à handleCgiRead : checkCGITimeouts peut fermer cgi_in_fd
-    // dans la même itération de boucle select, avant qu'on arrive ici.
     if (client.cgi_in_fd == -1)
         return;
     const char* data = client.cgi_body_write.data() + client.cgi_body_offset;
@@ -310,14 +297,10 @@ void Server::handleCgiWrite(int clientFd, fd_set& fds) {
     if (client.cgi_body_offset >= client.cgi_body_write.size()) {
         FD_CLR(client.cgi_in_fd, &fds);
         close(client.cgi_in_fd);
-        client.cgi_in_fd = -1; // signals EOF to child's stdin
+        client.cgi_in_fd = -1;
     }
 }
 
-// Eval sheet : "Check if there is no hanging connection."
-// Un client qui ouvre une connexion TCP sans jamais envoyer de requête complète
-// resterait en READING_HEADERS indéfiniment. On le déconnecte après 30s d'inactivité.
-// Sans ce timeout, un simple `nc localhost 8080` suffit à laisser une connexion zombie.
 void Server::checkIdleTimeouts(fd_set& fds) {
     const int IDLE_TIMEOUT = 30;
     std::time_t now = std::time(NULL);
@@ -325,7 +308,7 @@ void Server::checkIdleTimeouts(fd_set& fds) {
     for (std::map<int, Client>::const_iterator it = _clients.begin(); it != _clients.end(); ++it) {
         const Client& client = it->second;
         if (client.state == Client::CGI_RUNNING)
-            continue; // géré par checkCGITimeouts
+            continue;
         if (now - client.last_activity > IDLE_TIMEOUT)
             toRemove.push_back(it->first);
     }
@@ -333,9 +316,6 @@ void Server::checkIdleTimeouts(fd_set& fds) {
         removeClient(toRemove[i], fds);
 }
 
-// Sujet : "A request to your server should never hang indefinitely."
-// Un CGI en boucle infinie serait bloqué sans limite : on le kill après CGI_TIMEOUT secondes
-// et on répond 504 Gateway Timeout au client.
 void Server::checkCGITimeouts(fd_set& fds) {
     const int CGI_TIMEOUT = 10;
     std::time_t now = std::time(NULL);
@@ -409,7 +389,7 @@ void Server::run() {
             if (it->second.cgi_in_fd != -1)
                 cgi_in_to_client[it->second.cgi_in_fd] = it->first;
         }
-        // Timeout de 1s sur select pour permettre à checkCGITimeouts de s'exécuter régulièrement.
+
         struct timeval tv;
         tv.tv_sec  = 1;
         tv.tv_usec = 0;
@@ -441,7 +421,6 @@ void Server::run() {
             if (FD_ISSET(fdCurrent, &readfds)) {
                 handleClientRead(fdCurrent, fds);
             }
-            // Vérifie que le client existe encore : handleClientRead peut l'avoir supprimé.
             if (FD_ISSET(fdCurrent, &writefds) && _clients.count(fdCurrent)) {
                 handleClientWrite(fdCurrent, fds);
             }

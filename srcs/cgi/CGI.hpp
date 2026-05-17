@@ -17,7 +17,6 @@ class CGI {
 public:
     CGI(const sockaddr_in &clientAddr, const HttpRequest &request, const ConfigBlock &config) ;
     ~CGI();
-    // static bool isCGI(const std::string& path);
     std::string executeScript(const ConfigBlock &config);
     CGIFd startCGI(const ConfigBlock &config);
 

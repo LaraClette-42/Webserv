@@ -6,7 +6,6 @@
 
 
 int main(int argc, char** argv) {
-    // Sujet : "provided as argument on the command line, or available in a default path"
     const char *configPath = "conf/default.conf";
     if (argc >= 2)
         configPath = argv[1];
