@@ -60,6 +60,9 @@
         <h2>Stress test</h2>
         <ul>
             <li><code>bash tests/stress.sh http://localhost:8080/ 200 20</code></li>
+            <li><code>bash siege -c 10 -r 1000 http://127.0.0.1:8080/</code></li>
+            <li><code>bash siege -c 10 -t 30S http://127.0.0.1:8080/</code></li>
+            <li><code>bash siege -c 10 -r 1000000 http://localhost:8080/</code></li>
         </ul>
     </div>
 </body>
