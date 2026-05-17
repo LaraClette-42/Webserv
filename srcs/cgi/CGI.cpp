@@ -31,8 +31,17 @@ void CGI::setupEnvironment(const sockaddr_in &clientAddr, const HttpRequest &req
     _env["REMOTE_HOST"] = "localhost";
     _env["PATH_TRANSLATED"] = config.root + request.path;
     _env["GATEWAY_INTERFACE"] = "CGI/1.1";
-    if (!config.upload_store.empty())
-        _env["UPLOAD_PATH"] = config.upload_store;
+    if (!config.upload_store.empty()) {
+        // Le CGI fait un chdir() vers son répertoire avant execve.
+        // Un chemin relatif comme "www/uploads" serait alors résolu depuis
+        // www/cgi-bin/ et pointerait au mauvais endroit. On le rend absolu ici,
+        // avant le fork, pendant que le CWD est encore celui du serveur.
+        char cwd[4096];
+        if (getcwd(cwd, sizeof(cwd)))
+            _env["UPLOAD_PATH"] = std::string(cwd) + "/" + config.upload_store;
+        else
+            _env["UPLOAD_PATH"] = config.upload_store;
+    }
     for (std::map<std::string, std::string>::const_iterator it = request.headers.begin();
          it != request.headers.end(); ++it) {
         if (it->first == "content-type" || it->first == "content-length")
